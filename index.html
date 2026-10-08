@@ -200,6 +200,12 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .pin.hit{background:var(--c);transform:scale(1.15)}
 .gfsel{font-weight:600}
 #v-fotos{padding:14px 18px;max-width:1400px;margin:0 auto}
+#v-arbeit{padding:16px 20px;max-width:1100px;margin:0 auto}
+.wt input.tm{width:70px;text-align:center}
+.wt input.nm{text-align:right}
+.wt td.wb{font-weight:600;white-space:nowrap}
+.wrate{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--mut);font-weight:600}
+.wrate input{width:80px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;text-align:right}
 .fbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px}
 .fbar select{padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:#fff}
 .fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
@@ -331,6 +337,7 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
     <button data-act="tab" data-id="plan">Grundrisse</button>
     <button data-act="tab" data-id="fotos">Fotos</button>
     <button data-act="tab" data-id="belege">Belege</button>
+    <button data-act="tab" data-id="arbeit">Arbeitszeit</button>
     <button data-act="tab" data-id="export">Export &amp; Konto</button>
   </nav>
   <button id="syncBtn" class="sync" data-act="syncNow" hidden title="Jetzt synchronisieren"><i></i><span></span></button>
@@ -350,6 +357,7 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 <main id="v-belege" class="view" hidden></main>
 <main id="v-export" class="view" hidden></main>
 <main id="v-fotos" class="view" hidden></main>
+<main id="v-arbeit" class="view" hidden></main>
 
 <input type="file" id="planInput" accept="image/*,application/pdf" data-up="plan" hidden>
 <div id="lb" hidden data-act="closeLb"><img alt=""></div>
@@ -387,7 +395,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='1 (08.10.2026, Kopie von V15)';
+const APP_VERSION='3 (08.10.2026, ohne Datum in Pins, Arbeitszeit fürs Projekt)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 const GEWERKE=['Holzbau','Sanitär','Elektro','Fliesen','Gipser','Maler'];
 const GWC={Holzbau:'#92400e',Sanitär:'#2563eb',Elektro:'#ca8a04',Fliesen:'#0d9488',Gipser:'#6b7280',Maler:'#9333ea'};
@@ -405,16 +413,16 @@ function toast(msg,ms=2600){const t=$('#toast');t.textContent=msg;t.hidden=false
 
 /* ---------- Datenbank (IndexedDB, lokal im Browser) ---------- */
 let DB;
-function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(APP.db,4);
-  r.onupgradeneeded=()=>{const d=r.result;for(const s of ['kv','floors','buildings','pins','belege','blobs','queue','articles'])if(!d.objectStoreNames.contains(s))d.createObjectStore(s,{keyPath:'id'})};
+function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(APP.db,5);
+  r.onupgradeneeded=()=>{const d=r.result;for(const s of ['kv','floors','buildings','pins','belege','blobs','queue','articles','work'])if(!d.objectStoreNames.contains(s))d.createObjectStore(s,{keyPath:'id'})};
   r.onsuccess=()=>{DB=r.result;res()};r.onerror=()=>rej(r.error)})}
 function tx(store,mode,fn){return new Promise((res,rej)=>{const t=DB.transaction(store,mode);const r=fn(t.objectStore(store));let out;if(r)r.onsuccess=()=>{out=r.result};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error)})}
 const dbAll=s=>tx(s,'readonly',st=>st.getAll());
 const rawPut=(s,v)=>tx(s,'readwrite',st=>st.put(v)).catch(e=>{alert('Speichern fehlgeschlagen: '+(e&&e.message||e));throw e});
 const rawDel=(s,id)=>tx(s,'readwrite',st=>st.delete(id));
 /* Jede Änderung wird lokal gespeichert UND für die Cloud vorgemerkt */
-const SYNC_KIND={articles:'article',buildings:'building',floors:'floor',pins:'pin',belege:'beleg',kv:'project',blobs:'blob'};
-const STORE_OF={article:'articles',building:'buildings',floor:'floors',pin:'pins',beleg:'belege',project:'kv',blob:'blobs'};
+const SYNC_KIND={work:'work',articles:'article',buildings:'building',floors:'floor',pins:'pin',belege:'beleg',kv:'project',blobs:'blob'};
+const STORE_OF={work:'work',article:'articles',building:'buildings',floor:'floors',pin:'pins',beleg:'belege',project:'kv',blob:'blobs'};
 /* Lokal gerade bearbeitete Datensätze: werden vom Cloud-Abgleich nicht überschrieben, sondern zuerst hochgeladen */
 const TOUCH=new Map();const touch=(store,id)=>TOUCH.set(store+'|'+id,Date.now());
 const recentlyTouched=k=>(TOUCH.get(k)||0)>Date.now()-20000;
@@ -424,10 +432,10 @@ async function dbDel(s,id){await rawDel(s,id);if(SYNC_KIND[s])await enqueue(s,id
 const dbClear=s=>tx(s,'readwrite',st=>st.clear());
 
 /* ---------- Zustand ---------- */
-const S={project:{id:'project',name:APP.title,address:'',author:'',period:''},floors:[],buildings:[],articles:[],pins:[],belege:[],blobs:[]};
+const S={project:{id:'project',name:APP.title,address:'',author:'',period:''},floors:[],buildings:[],articles:[],pins:[],belege:[],blobs:[],work:[]};
 const ZOOM0=.5;
 let SHOWLBL=false;try{SHOWLBL=localStorage.getItem(APP.id+'_lbl')==='1'}catch(_){}
-const UI={tab:'plan',floor:null,pin:null,add:false,draw:null,newArt:null,gf:'',pf:'',pfl:'',gwOpen:new Set(),fg:'',zoom:ZOOM0,fy:'',fc:'',q:'',hl:null,opts:{plans:true,entries:true,mats:true,list:true,att:true,gw:''}};
+const UI={tab:'plan',floor:null,pin:null,add:false,draw:null,newArt:null,gf:'',pf:'',pfl:'',gwOpen:new Set(),fg:'',zoom:ZOOM0,fy:'',fc:'',q:'',hl:null,opts:{plans:true,entries:true,mats:true,work:true,list:true,att:true,gw:''}};
 const blobMap=new Map(), urls=new Map();
 const floorById=id=>S.floors.find(f=>f.id===id);
 const pinById=id=>S.pins.find(p=>p.id===id);
@@ -463,13 +471,14 @@ function areasHtml(f){if(!isSite(f)){const rs=roomsOf(f).filter(r=>r.area&&r.are
 const pinsOf=fid=>S.pins.filter(p=>p.floorId===fid).sort((a,b)=>a.nr-b.nr);
 const belegeSorted=()=>[...S.belege].sort((a,b)=>(a.date||'').localeCompare(b.date||'')||a.nr-b.nr);
 /* Jeder Pin hat mehrere Einträge (Fortschritt): Datum, Bemerkung, Fotos, Material und Belege pro Gewerk */
-const newEntry=()=>({id:uid(),date:today(),note:'',tags:[],photoIds:[],belegIds:[],belegGw:{},gwText:{},mats:[],by:SES?SES.email:''});
+const newEntry=()=>({id:uid(),note:'',tags:[],photoIds:[],belegIds:[],belegGw:{},gwText:{},mats:[],by:SES?SES.email:''});
 function normPin(p){if(!p)return p;
   if(!Array.isArray(p.entries))p.entries=[{id:p.id+'-e1',date:p.date||today(),note:p.note||'',photoIds:p.photoIds||[],belegIds:p.belegIds||[],belegGw:p.belegGw||{},gwText:p.gwText||{},material:p.material||'',mats:[],by:p.by||''}];
   for(const k of ['date','note','photoIds','belegIds','belegGw','gwText','material'])delete p[k];
   for(const e of p.entries){e.photoIds=e.photoIds||[];e.belegIds=e.belegIds||[];e.belegGw=e.belegGw||{};e.gwText=e.gwText||{};e.mats=e.mats||[];e.tags=e.tags||[];for(const m of e.mats)if(!m.gw)m.gw='Holzbau'}
   if(!p.entries.length)p.entries.push(newEntry());return p}
-const entriesOf=p=>[...p.entries].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+const entriesOf=p=>[...p.entries];
+const entNo=(p,e)=>p.entries.indexOf(e)+1;
 const lastEntry=p=>entriesOf(p).slice(-1)[0];
 const pinPhotos=p=>p.entries.flatMap(e=>e.photoIds);
 const pinBelegIds=p=>[...new Set(p.entries.flatMap(e=>e.belegIds))];
@@ -506,7 +515,7 @@ async function delBlobIfUnused(id){if(!id)return;
   const used=S.pins.some(p=>p.entries.some(e=>e.photoIds.includes(id)))||S.belege.some(b=>b.fileId===id||b.previewId===id)||S.floors.some(f=>f.planId===id);
   if(used)return;await dbDel('blobs',id);const i=S.blobs.findIndex(b=>b.id===id);if(i>=0)S.blobs.splice(i,1);blobMap.delete(id);
   if(urls.has(id)){URL.revokeObjectURL(urls.get(id));urls.delete(id)}}
-function whereUsed(id){for(const p of S.pins){const e=p.entries.find(e=>e.photoIds.includes(id));if(e)return `${floorLabel(floorById(p.floorId))}, Pin ${p.nr}, Eintrag ${fmtDate(e.date)}`}
+function whereUsed(id){for(const p of S.pins){const e=p.entries.find(e=>e.photoIds.includes(id));if(e)return `${floorLabel(floorById(p.floorId))}, Pin ${p.nr}, Eintrag ${entNo(p,e)}`}
   const b=S.belege.find(b=>b.fileId===id);if(b)return `Beleg B-${pad(b.nr)}`;return ''}
 
 /* ---------- Bilder, PDFs, Hash ---------- */
@@ -596,7 +605,7 @@ function render(){
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.id===UI.tab));
   document.querySelectorAll('.view').forEach(v=>v.hidden=v.id!=='v-'+UI.tab);
   $('#projName').value=S.project.name||'';$('#logo').title='Version '+APP_VERSION;
-  if(UI.tab==='plan')renderPlan();else if(UI.tab==='belege')renderBelege();else if(UI.tab==='fotos')renderFotos();else renderExport();
+  if(UI.tab==='plan')renderPlan();else if(UI.tab==='belege')renderBelege();else if(UI.tab==='fotos')renderFotos();else if(UI.tab==='arbeit')renderArbeit();else renderExport();
 }
 function renderPlan(){renderFloorList();renderStage();renderPinPanel()}
 function renderFloorList(){
@@ -641,12 +650,12 @@ function renderPinPanel(){
     const pins=pinsOf(UI.floor),cf=curFloor();
     const bl=isSite(cf)?`<div class="hd">Gebäude</div>${bldsSorted().map(b=>`<div class="bld"><input data-bld="${b.id}" value="${esc(b.name)}" title="Umbenennen"><small>${floorsOfBld(b.id).length} Geschoss(e)${b.area?'':' · noch keine Fläche'}</small><div class="bact"><button class="b sm" data-act="openBld" data-id="${b.id}">Öffnen</button><button class="b sm" data-act="redraw" data-id="${b.id}">Fläche ${b.area?'neu ':''}zeichnen</button><button class="b sm d" data-act="delBld" data-id="${b.id}">Löschen</button></div></div>`).join('')||'<p class="mut">Noch keine Gebäude. Tippe oben auf «🏠 Gebäude markieren» und dann auf die Ecken des Hauses.</p>'}<div style="height:14px"></div>`:'';
     const rl=!isSite(cf)&&cf.planId?`<div class="hd">Zimmer</div>${roomsOf(cf).map(r=>`<div class="bld"><input data-room="${r.id}" value="${esc(r.name)}" title="Umbenennen"><small>${pins.filter(p=>roomOfPin(p)===r).length} Pin(s)</small><div class="bact"><button class="b sm" data-act="redrawRoom" data-id="${r.id}">Fläche neu zeichnen</button><button class="b sm d" data-act="delRoom" data-id="${r.id}">Löschen</button></div></div>`).join('')||'<p class="mut" style="font-size:13px">Noch keine Zimmer. Oben «▭ Zimmer zeichnen» – bei Rechtecken genügen 2 Ecken.</p>'}<div style="height:14px"></div>`:'';
-    const pli=x=>`<div class="pli" data-act="selPin" data-id="${x.id}"><b>${x.nr}</b><span>${esc(x.title||'(ohne Titel)')}<small>${fmtDate(lastEntry(x).date)} · ${x.entries.length} ${x.entries.length===1?'Eintrag':'Einträge'} · ${pinPhotos(x).length} Foto(s)${pinBelegIds(x).length?' · '+pinBelegIds(x).length+' Beleg(e)':''}${pinGewerke(x).length?'<br>'+gwDots(pinGewerke(x)):''}</small></span></div>`;
+    const pli=x=>`<div class="pli" data-act="selPin" data-id="${x.id}"><b>${x.nr}</b><span>${esc(x.title||'(ohne Titel)')}<small>${x.entries.length} ${x.entries.length===1?'Eintrag':'Einträge'} · ${pinPhotos(x).length} Foto(s)${pinBelegIds(x).length?' · '+pinBelegIds(x).length+' Beleg(e)':''}${pinGewerke(x).length?'<br>'+gwDots(pinGewerke(x)):''}</small></span></div>`;
     const gr=pinGroups(cf,pins);
     el.innerHTML=`${bl}${rl}<div class="hd">Einträge ${esc(floorLabel(cf))}</div>${pins.length?gr.map(g=>(gr.length>1||g.room?`<div class="rgh"><span>${g.room?'▭ '+esc(g.room.name):'Ohne Zimmer'}</span><span>${g.pins.length}</span></div>`:'')+g.pins.map(pli).join('')).join(''):'<p class="mut">Noch keine Pins. Klicke oben auf «📍 Pin setzen» und dann auf die Stelle im Grundriss.</p>'}`;
     return}
   const e=curEntry(p);
-  const entHtml=entriesOf(p).map(x=>e&&x.id===e.id?entryEditor(p,x):`<div class="ent c" data-act="selEntry" data-id="${x.id}"><b>${fmtDate(x.date)||'ohne Datum'}</b><span>${esc((x.note||'').split('\n')[0]||'–')}</span><small class="mut">${[x.photoIds.length?'📷'+x.photoIds.length:'',x.belegIds.length?'🧾'+x.belegIds.length:'',x.mats.length?'🪵 CHF '+chf(matTotal(x.mats)):''].filter(Boolean).join(' ')}${entTags(x).length?'<br>'+gwDots(entTags(x)):''}</small></div>`).join('');
+  const entHtml=entriesOf(p).map(x=>e&&x.id===e.id?entryEditor(p,x):`<div class="ent c" data-act="selEntry" data-id="${x.id}"><b>Eintrag ${entNo(p,x)}</b><span>${esc((x.note||'').split('\n')[0]||'–')}</span><small class="mut">${[x.photoIds.length?'📷'+x.photoIds.length:'',x.belegIds.length?'🧾'+x.belegIds.length:'',x.mats.length?'🪵 CHF '+chf(matTotal(x.mats)):''].filter(Boolean).join(' ')}${entTags(x).length?'<br>'+gwDots(entTags(x)):''}</small></div>`).join('');
   el.innerHTML=`<div class="hd"><button class="b sm" data-act="closePin">‹ Alle Pins</button><span class="pnr">${p.nr}</span></div>
   <label>Titel / Raum<input data-f="title" value="${esc(p.title)}" placeholder="z.B. Bad OG – Wandanschluss"></label>
   ${roomsOf(floorById(p.floorId)).length?`<p class="proom">▭ Zimmer: ${roomOfPin(p)?esc(roomOfPin(p).name):'<span class="mut" style="font-weight:400">ausserhalb der Zimmerflächen</span>'}</p>`:''}
@@ -682,7 +691,7 @@ function entryEditor(p,e){
       <textarea data-gwt="${g}" rows="2" placeholder="Notiz ${g} …">${esc(t)}</textarea>
       <div class="chips">${bl.map(chip).join('')}</div>${sel(g)}</div></details>`};
   const other=entBelegeGw(e,'');
-  return `<div class="ent o"><div class="ehd"><input type="date" data-ef="date" value="${esc(e.date)}"><button class="b sm d" data-act="delEntry" title="Eintrag löschen">Eintrag löschen</button></div>
+  return `<div class="ent o"><div class="ehd"><b style="flex:1">Eintrag ${entNo(p,e)}</b><button class="b sm d" data-act="delEntry" title="Eintrag löschen">Eintrag löschen</button></div>
   <p class="autosave">💾 Alles wird automatisch gespeichert.</p>
   <div class="lbl">Gewerke (antippen)</div>
   <div class="tags">${GEWERKE.map(g=>`<button class="tagb ${(e.tags||[]).includes(g)?'on':''}" style="--c:${GWC[g]}" data-act="togTag" data-id="${g}">${g}</button>`).join('')}</div>
@@ -697,6 +706,88 @@ function entryEditor(p,e){
   ${e.by?`<p class="mut" style="font-size:12px;margin:10px 0 0">Erfasst von ${esc(e.by)}</p>`:''}
   <div class="efoot"><button class="b p" data-act="doneEntry">✓ Eintrag fertig</button></div></div>`;
 }
+/* ---------- Arbeitszeit (Projekt, nicht an Pins) ---------- */
+/* Zeiten ohne Doppelpunkt: 0800 = 08:00, 730 = 07:30, 8 = 08:00 */
+function parseTime(v){const t=String(v||'').trim().replace(/[.,h ]/g,':');if(!t)return '';let h,m;
+  if(t.includes(':')){[h,m]=t.split(':').map(x=>parseInt(x||'0',10))}else{const d=t.replace(/\D/g,'');if(!d)return null;if(d.length<=2){h=+d;m=0}else{h=+d.slice(0,-2);m=+d.slice(-2)}}
+  if(isNaN(h)||isNaN(m)||h>24||m>59||(h===24&&m))return null;return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')}
+const tMin=t=>{if(!t)return null;const [h,m]=t.split(':').map(Number);return h*60+m};
+function workHours(w){const a=tMin(w.von),b=tMin(w.bis);if(a!=null&&b!=null){let d=b-a;if(d<0)d+=1440;d-=(+w.pause||0);return Math.max(0,Math.round(d/60*100)/100)}return +w.h||0}
+const projRate=()=>{const r=parseAmount(S.project.rate??'');return r===''?0:r};
+const workRate=w=>w.rate!==''&&w.rate!=null?+w.rate:projRate();
+const workCost=w=>Math.round(workHours(w)*workRate(w)*100)/100;
+const workSorted=()=>[...S.work].sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.von||'').localeCompare(b.von||'')||(a.t||0)-(b.t||0));
+const sumH=ws=>Math.round(ws.reduce((x,w)=>x+workHours(w),0)*100)/100;
+const sumC=ws=>Math.round(ws.reduce((x,w)=>x+workCost(w),0)*100)/100;
+const hfmt=h=>(+h||0).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' h';
+const workFiltered=()=>workSorted().filter(w=>!UI.wy||(w.date||'').startsWith(UI.wy));
+function workSumText(){const l=workFiltered();return `${l.length} Einsätze · <b>${hfmt(sumH(l))}</b> · CHF <b>${chf(sumC(l))}</b>`}
+function renderArbeit(){
+  const years=[...new Set(S.work.map(w=>(w.date||'').slice(0,4)).filter(Boolean))].sort(),list=workFiltered(),r=projRate();
+  $('#v-arbeit').innerHTML=`<div class="bbar"><button class="b p" data-act="addWork">+ Arbeitszeit</button>
+    <label class="b">📥 Excel importieren<input type="file" accept=".xlsx,.xlsm,.csv" hidden data-up="workXls"></label>
+    <span class="wrate">Stundenansatz CHF <input data-pf="rate" inputmode="decimal" value="${S.project.rate!=null&&S.project.rate!==''?chf(r):''}" placeholder="0.00"></span>
+    <select data-ch="wy"><option value="">Alle Jahre</option>${years.map(y=>`<option ${UI.wy===y?'selected':''}>${y}</option>`).join('')}</select>
+    <span class="sp"></span><span class="sum" id="wsum">${workSumText()}</span></div>
+    <p class="mut" style="font-size:12px;margin:0 0 10px">Zeiten ohne Doppelpunkt eingeben (0730, 1700). Mit Von/Bis rechnet die App die Stunden selbst, sonst Stunden direkt eintragen. Ansatz leer = Stundenansatz oben.</p>
+    ${list.length?`<div class="tw"><table class="bt wt" style="min-width:880px"><thead><tr><th style="width:140px">Datum</th><th>Von</th><th>Bis</th><th>Pause Min</th><th class="r" style="width:80px">Std.</th><th class="r" style="width:90px">Ansatz</th><th class="r" style="width:100px">CHF</th><th>Bemerkung</th><th></th></tr></thead><tbody>
+    ${list.map(w=>`<tr data-id="${w.id}"><td><input type="date" data-wf="date" value="${esc(w.date)}"></td>
+      <td><input class="tm" data-wf="von" inputmode="numeric" value="${esc(w.von||'')}" placeholder="${w.h?'':'0730'}"></td><td><input class="tm" data-wf="bis" inputmode="numeric" value="${esc(w.bis||'')}" placeholder="${w.h?'':'1700'}"></td>
+      <td><input class="tm" data-wf="pause" inputmode="numeric" value="${w.pause||''}"></td>
+      <td><input class="nm" data-wf="h" inputmode="decimal" value="${workHours(w)?chf(workHours(w)):''}" ${w.von&&w.bis?'readonly title="Aus Von/Bis berechnet"':''}></td>
+      <td><input class="nm" data-wf="rate" inputmode="decimal" value="${w.rate!==''&&w.rate!=null?chf(w.rate):''}" placeholder="${chf(r)}"></td>
+      <td class="r wb">${chf(workCost(w))}</td><td><input data-wf="note" value="${esc(w.note||'')}" placeholder="Tätigkeit"></td>
+      <td><button class="b d sm" data-act="delWork" data-id="${w.id}" title="Löschen">×</button></td></tr>`).join('')}</tbody></table></div>`
+    :`<p class="mut c" style="margin-top:30px">${S.work.length?'Keine Einsätze in diesem Jahr.':'Noch keine Arbeitszeiten. Über «📥 Excel importieren» kannst du deine Stundenliste einmalig übernehmen.'}</p>`}`}
+/* Excel (.xlsx) direkt im Browser lesen – ohne Zusatzbibliothek, funktioniert offline */
+async function unzip(buf){const u=new Uint8Array(buf),dv=new DataView(buf);let e=u.length-22;while(e>=0&&dv.getUint32(e,true)!==0x06054b50)e--;if(e<0)throw new Error('Keine gültige Excel-Datei');
+  const n=dv.getUint16(e+10,true);let o=dv.getUint32(e+16,true);const files={};
+  for(let k=0;k<n;k++){const m=dv.getUint16(o+10,true),cs=dv.getUint32(o+20,true),fl=dv.getUint16(o+28,true),xl=dv.getUint16(o+30,true),cl=dv.getUint16(o+32,true),lo=dv.getUint32(o+42,true);
+    const name=new TextDecoder().decode(u.subarray(o+46,o+46+fl));o+=46+fl+xl+cl;files[name]={m,cs,lo}}
+  const get=async name=>{const f=files[name];if(!f)return null;const lo=f.lo,st=lo+30+dv.getUint16(lo+26,true)+dv.getUint16(lo+28,true),raw=u.subarray(st,st+f.cs);
+    if(f.m===0)return new TextDecoder().decode(raw);if(!('DecompressionStream' in window))throw new Error('Browser zu alt für Excel-Import');
+    const out=new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));return await new Response(out).text()};
+  return {names:Object.keys(files),get}}
+async function readXlsx(buf){const z=await unzip(buf),P=x=>new DOMParser().parseFromString(x,'application/xml');
+  const ssx=await z.get('xl/sharedStrings.xml'),ss=ssx?[...P(ssx).getElementsByTagName('si')].map(si=>[...si.getElementsByTagName('t')].map(t=>t.textContent).join('')):[];
+  const sheets=z.names.filter(n=>/^xl\/worksheets\/sheet\d+\.xml$/.test(n)).sort((a,b)=>parseInt(a.match(/\d+/))-parseInt(b.match(/\d+/)));const res=[];
+  for(const sn of sheets){const d=P(await z.get(sn)),rows=[];
+    for(const r of d.getElementsByTagName('row')){const ri=(+r.getAttribute('r')||rows.length+1)-1,row=[];
+      for(const c of r.getElementsByTagName('c')){const ref=c.getAttribute('r')||'',L=(ref.match(/^[A-Z]+/)||[''])[0];let ci=0;for(const ch of L)ci=ci*26+ch.charCodeAt(0)-64;ci--;
+        const t=c.getAttribute('t'),v=c.getElementsByTagName('v')[0],tx=v?v.textContent:'';let val;
+        if(t==='s')val=ss[+tx]??'';else if(t==='inlineStr')val=[...c.getElementsByTagName('t')].map(x=>x.textContent).join('');else if(t==='str'||t==='e')val=tx;else if(t==='b')val=tx==='1';else val=tx===''?'':+tx;
+        if(ci>=0)row[ci]=val}
+      for(let k=0;k<row.length;k++)if(row[k]===undefined)row[k]='';rows[ri]=row}
+    for(let k=0;k<rows.length;k++)if(!rows[k])rows[k]=[];res.push(rows)}
+  return res}
+function readCsv(text){const lines=text.replace(/\r/g,'').split('\n').filter(l=>l.trim());const sep=(lines[0]||'').split(';').length>=(lines[0]||'').split(',').length?';':',';
+  return [lines.map(l=>l.split(sep).map(x=>{x=x.trim().replace(/^"|"$/g,'');const n=/^-?\d+([.,]\d+)?$/.test(x)?+x.replace(',','.'):x;return n}))]}
+function cellDate(v){if(v instanceof Date&&!isNaN(v))return isoDate(new Date(v.getTime()+12*3600e3));
+  if(typeof v==='number'&&v>20000&&v<80000){const d=new Date(Math.round((v-25569)*864e5));return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`}
+  const m=String(v||'').trim().match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})$/);if(m){let y=+m[3];if(y<100)y+=2000;return `${y}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`}
+  const i=String(v||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return i?i[0]:null}
+const cellNum=v=>{if(typeof v==='number')return v;const n=parseAmount(v??'');return n===''?null:n};
+const cellTime=v=>{if(typeof v==='number'&&v>=0&&v<1){const m=Math.round(v*1440);return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')}if(v instanceof Date)return String(v.getHours()).padStart(2,'0')+':'+String(v.getMinutes()).padStart(2,'0');const t=parseTime(v);return t||''};
+async function importWorkXls(file){if(!file)return;toast('Excel wird gelesen …',60000);
+  try{const sheets=/\.csv$/i.test(file.name)?readCsv(await file.text()):readXlsx(await file.arrayBuffer());const rows=[];
+    for(const a of await sheets){
+      const hi=a.findIndex(r=>r.some(c=>/datum/i.test(String(c))));if(hi<0)continue;const H=a[hi].map(c=>String(c).toLowerCase());
+      const col=re=>H.findIndex(c=>re.test(c));const cD=col(/datum/),cH=col(/einsatz|stunden|std|dauer|zeit/),cL=col(/lohn|betrag|chf|kosten/),cV=col(/^von|beginn|start/),cB=col(/^bis|ende/),cP=col(/pause/),cN=col(/bemerk|tätig|taetig|notiz|beschr/);
+      for(const r of a.slice(hi+1)){const date=cellDate(r[cD]);if(!date)continue;
+        const von=cV>=0?cellTime(r[cV]):'',bis=cB>=0?cellTime(r[cB]):'',pause=cP>=0?(cellNum(r[cP])||''):'';
+        let h=cH>=0?cellNum(r[cH]):null;const w={date,von,bis,pause,h:h??'',note:cN>=0?String(r[cN]||'').trim():''};
+        h=workHours(w);if(!h)continue;const lohn=cL>=0?cellNum(r[cL]):null;w.lohn=lohn;rows.push(w)}}
+    if(!rows.length){toast('Keine Arbeitszeiten gefunden. Die Tabelle braucht eine Spalte «Datum» und eine mit Stunden.',7000);return}
+    const rates=[...new Set(rows.filter(w=>w.lohn).map(w=>Math.round(w.lohn/workHours(w)*100)/100))];
+    let base=projRate();if(!base&&rates.length===1){base=rates[0];S.project.rate=base;await dbPut('kv',S.project)}
+    for(const w of rows){const rt=w.lohn?Math.round(w.lohn/workHours(w)*100)/100:null;w.rate=rt!=null&&rt!==base?rt:'';delete w.lohn}
+    const totH=sumH(rows),ds=rows.map(w=>w.date).sort(),old=S.work.filter(w=>w.src==='import');
+    toast('',1);$('#toast').hidden=true;
+    if(!confirm(`${rows.length} Einsätze gefunden (${fmtDate(ds[0])} – ${fmtDate(ds[ds.length-1])})\nTotal ${hfmt(totH)} · CHF ${chf(sumC(rows))}${base?' (Ansatz CHF '+chf(base)+'/h)':''}\n\nJetzt importieren?`))return;
+    if(old.length&&confirm(`Es sind bereits ${old.length} importierte Einsätze vorhanden.\nSollen diese ersetzt werden (empfohlen, damit nichts doppelt ist)?`)){for(const w of old)await dbDel('work',w.id);S.work=S.work.filter(w=>w.src!=='import')}
+    let t=Date.now();for(const w of rows){const rec=Object.assign({id:uid(),t:t++,src:'import',by:SES?SES.email:''},w);S.work.push(rec);await dbPut('work',rec)}
+    UI.wy='';renderArbeit();toast(`✓ ${rows.length} Einsätze importiert – ${hfmt(totH)}${cloudOn()&&SES?' · wird synchronisiert':''}`,6000)}
+  catch(e){console.error(e);toast('Import fehlgeschlagen: '+e.message,7000)}}
 function katSearch(q,g){const w=q.toLowerCase().split(/\s+/).filter(Boolean);if(!w.length)return '';
   const esc2=x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');const wb=w.map(x=>new RegExp('(^|[^a-zäöü0-9])'+esc2(x))),wx=w.map(x=>new RegExp('(^|[^a-zäöü0-9])'+esc2(x)+(/[0-9]$/.test(x)?'(?![0-9])':'(?![a-zäöü0-9])')));
   const score=h=>wb.filter(re=>re.test(h)).length+2*wx.filter(re=>re.test(h)).length;
@@ -749,6 +840,7 @@ function renderExport(){
     <label class="ck"><input type="checkbox" data-opt="plans" ${o.plans?'checked':''}> Grundrisse mit Pins</label>
     <label class="ck"><input type="checkbox" data-opt="entries" ${o.entries?'checked':''}> Pro Pin: Fortschritte, Fotos und Belege (mit Aufteilung)</label>
     <label class="ck"><input type="checkbox" data-opt="mats" ${o.mats?'checked':''}> Materialbezug pro Gewerk mit Kosten</label>
+    <label class="ck"><input type="checkbox" data-opt="work" ${o.work?'checked':''}> Arbeitszeit (am Schluss, vor dem Gesamtbetrag)</label>
     <label class="ck"><input type="checkbox" data-opt="list" ${o.list?'checked':''}> Belegliste mit Totalen pro Kategorie</label>
     <label class="ck"><input type="checkbox" data-opt="att" ${o.att?'checked':''}> Belege als Anhang (eine Seite pro Beleg)</label>
     <label style="margin-top:10px">Nur ein Gewerk (Auszug, z.B. für den Sanitär)<select data-ch="pgw"><option value="">Alle Gewerke</option>${GEWERKE.map(g=>`<option ${o.gw===g?'selected':''}>${g}</option>`).join('')}</select></label></div>
@@ -773,7 +865,7 @@ function renderFotos(){
   $('#v-fotos').innerHTML=`<div class="fbar"><button class="tagb ${!UI.pf?'on':''}" style="--c:#1f2328" data-act="pfSet" data-id="">Alle</button>${GEWERKE.map(g=>`<button class="tagb ${UI.pf===g?'on':''}" style="--c:${GWC[g]}" data-act="pfSet" data-id="${g}">${g}</button>`).join('')}
     <select data-ch="pfl"><option value="">Alle Pläne</option>${orderedFloors().map(f=>`<option value="${f.id}" ${UI.pfl===f.id?'selected':''}>${esc(floorLabel(f))}</option>`).join('')}</select>
     <span class="sp"></span><span class="mut">${items.length} Foto(s)</span></div>
-    ${items.length?`<div class="fgrid">${items.map(x=>`<div class="fc"><img src="${urlOf(x.id)}" alt="" data-act="zoomImg" data-id="${x.id}" loading="lazy"><div class="fcap"><b>${esc(floorLabel(x.f))}${roomOfPin(x.p)?' · '+esc(roomOfPin(x.p).name):''} · ${x.p.nr} ${esc(x.p.title||'')}</b><span class="mut">${fmtDate(x.e.date)}${x.e.note?' · '+esc(x.e.note.split('\n')[0]):''}</span><div>${gwDots(x.tg)}</div><a data-act="gotoEntry" data-id="${x.p.id}" data-e="${x.e.id}">Zum Eintrag ›</a></div></div>`).join('')}</div>`
+    ${items.length?`<div class="fgrid">${items.map(x=>`<div class="fc"><img src="${urlOf(x.id)}" alt="" data-act="zoomImg" data-id="${x.id}" loading="lazy"><div class="fcap"><b>${esc(floorLabel(x.f))}${roomOfPin(x.p)?' · '+esc(roomOfPin(x.p).name):''} · ${x.p.nr} ${esc(x.p.title||'')}</b><span class="mut">Eintrag ${entNo(x.p,x.e)}${x.e.note?' · '+esc(x.e.note.split('\n')[0]):''}</span><div>${gwDots(x.tg)}</div><a data-act="gotoEntry" data-id="${x.p.id}" data-e="${x.e.id}">Zum Eintrag ›</a></div></div>`).join('')}</div>`
       :`<p class="mut c" style="margin-top:40px">${UI.pf?'Keine Fotos mit Gewerk «'+UI.pf+'». Gewerke markierst du im Eintrag mit den farbigen Knöpfen.':'Noch keine Fotos erfasst.'}</p>`}`}
 function showImg(id){const lb=$('#lb');lb.querySelector('img').src=urlOf(id);lb.hidden=false}
 
@@ -874,7 +966,7 @@ const ACT={
   newEntry:async()=>{const p=pinById(UI.pin);if(!p)return;const e=newEntry();p.entries.push(e);UI.entry=e.id;await dbPut('pins',p);renderPlan();const t=document.querySelector('[data-ef="note"]');if(t)t.focus()},
   delEntry:async()=>{const p=pinById(UI.pin),e=curEntry(p);if(!e)return;
     if(p.entries.length===1)return ACT.delPin();
-    if(!confirm(`Eintrag vom ${fmtDate(e.date)} mit ${e.photoIds.length} Foto(s) löschen?`))return;
+    if(!confirm(`Eintrag ${entNo(p,e)} mit ${e.photoIds.length} Foto(s) löschen?`))return;
     p.entries=p.entries.filter(x=>x.id!==e.id);UI.entry=null;await dbPut('pins',p);for(const id of e.photoIds)await delBlobIfUnused(id);renderPlan()},
   addMat:async(code,a)=>{const k=KATMAP.get(code),p=pinById(UI.pin),e=curEntry(p);if(!k||!e)return;const g=(a&&a.dataset.gw)||'Holzbau';
     e.mats.push({gw:g,code:k[0],name:k[1],unit:k[2],price:k[3],qty:'',src:'Regiepreisliste'});UI.gwOpen.add(g);await dbPut('pins',p);renderPinPanel();focusLastQty()},
@@ -894,6 +986,9 @@ const ACT={
   delArt:async id=>{const x=S.articles.find(z=>z.id===id);if(!x||!confirm(`«${x.name}» aus «Meine Artikel» entfernen?\n(Bereits erfasste Mengen in Einträgen bleiben erhalten.)`))return;
     S.articles=S.articles.filter(z=>z.id!==id);await dbDel('articles',id);renderExport()},
   rmMat:async i=>{const p=pinById(UI.pin),e=curEntry(p);if(!e)return;const m=e.mats[+i];if(!m||!confirm(`«${m.name}» entfernen?`))return;e.mats.splice(+i,1);await dbPut('pins',p);renderPinPanel()},
+  addWork:async()=>{const w={id:uid(),t:Date.now(),date:today(),von:'',bis:'',pause:'',h:'',rate:'',note:'',by:SES?SES.email:''};S.work.push(w);await dbPut('work',w);UI.wy='';renderArbeit();
+    const el=document.querySelector(`#v-arbeit tr[data-id="${w.id}"] [data-wf="von"]`);if(el){el.scrollIntoView({block:'center'});el.focus()}},
+  delWork:async id=>{const w=S.work.find(x=>x.id===id);if(!w||!confirm(`Arbeitszeit vom ${fmtDate(w.date)} (${hfmt(workHours(w))}) löschen?`))return;S.work=S.work.filter(x=>x.id!==id);await dbDel('work',id);renderArbeit()},
   closePin:()=>{UI.pin=null;renderPlan()},
   zoomImg:id=>showImg(id),
   closeLb:()=>{$('#lb').hidden=true},
@@ -921,11 +1016,12 @@ const CH={
   floorBld:async v=>{const f=curFloor();if(!f)return;f.buildingId=v||null;await dbPut('floors',f);renderPlan()},
   renameFloor:async v=>{const f=curFloor();if(!v.trim())return renderStage();f.name=v.trim();await dbPut('floors',f);renderFloorList()},
   link:async(v,t)=>{if(!v)return;const g=t.dataset.gw||'';UI.gwOpen.add(g);const p=pinById(UI.pin);await linkBeleg(p,curEntry(p),v,g);renderPlan()},
-  linkPin:async(v,t)=>{if(!v)return;const b=belegById(t.closest('tr').dataset.id),p=pinById(v);if(!b||!p)return;const e=lastEntry(p);await linkBeleg(p,e,b.id,b.gewerk||'');renderBelege();toast(`Beleg dem letzten Eintrag (${fmtDate(e.date)}) von Pin ${p.nr} zugeordnet`)},
+  linkPin:async(v,t)=>{if(!v)return;const b=belegById(t.closest('tr').dataset.id),p=pinById(v);if(!b||!p)return;const e=lastEntry(p);await linkBeleg(p,e,b.id,b.gewerk||'');renderBelege();toast(`Beleg dem letzten Eintrag (Nr. ${entNo(p,e)}) von Pin ${p.nr} zugeordnet`)},
   fg:v=>{UI.fg=v;renderBelege()},
+  wy:v=>{UI.wy=v;renderArbeit()},
   fy:v=>{UI.fy=v;renderBelege()},fc:v=>{UI.fc=v;renderBelege()},q:v=>{UI.q=v;renderBelege()},
 };
-const UP={plan:fs=>uploadPlan(fs[0]),pinPhotos:addPinPhotos,belege:addBelege,restore:fs=>doRestore(fs[0])};
+const UP={workXls:fs=>importWorkXls(fs[0]),plan:fs=>uploadPlan(fs[0]),pinPhotos:addPinPhotos,belege:addBelege,restore:fs=>doRestore(fs[0])};
 
 document.addEventListener('click',e=>{const a=e.target.closest('[data-act]');if(!a||!ACT[a.dataset.act])return;
   if(a.tagName==='A'||a.tagName==='BUTTON')e.preventDefault();ACT[a.dataset.act](a.dataset.id,a,e)});
@@ -934,10 +1030,17 @@ document.addEventListener('change',async e=>{const t=e.target,d=t.dataset;
   if(d.ch&&CH[d.ch]){CH[d.ch](t.value,t);return}
   if(d.mq!==undefined||d.mp!==undefined){const p=pinById(UI.pin),e=curEntry(p);if(!e)return;const m=e.mats[+(d.mq??d.mp)];if(!m)return;
     if(d.mq!==undefined)m.qty=parseAmount(t.value);else m.price=parseAmount(t.value)===''?null:parseAmount(t.value);await dbPut('pins',p);renderPinPanel();return}
+  if(d.wf){const tr=t.closest('tr'),w=S.work.find(x=>x.id===tr.dataset.id);if(!w)return;
+    if(d.wf==='von'||d.wf==='bis'){const v=parseTime(t.value);if(v===null){toast('Zeit bitte ohne Doppelpunkt eingeben, z.B. 0730 oder 1700',4000);t.value=w[d.wf]||'';return}w[d.wf]=v;t.value=v}
+    else if(d.wf==='pause'){w.pause=parseInt(String(t.value).replace(/\D/g,''),10)||'';t.value=w.pause}
+    else if(d.wf==='h'||d.wf==='rate'){const v=parseAmount(t.value);w[d.wf]=v;t.value=v===''?'':chf(v)}
+    else w[d.wf]=t.value;
+    await dbPut('work',w);const hi=tr.querySelector('[data-wf="h"]');if(w.von&&w.bis){hi.value=chf(workHours(w));hi.readOnly=true}else hi.readOnly=false;
+    tr.querySelector('.wb').textContent=chf(workCost(w));$('#wsum').innerHTML=workSumText();return}
   if(d.opt){UI.opts[d.opt]=t.checked;return}
   if(d.room){const f=curFloor(),r=f&&(f.rooms||[]).find(x=>x.id===d.room);if(!r||!t.value.trim())return renderPlan();r.name=t.value.trim();await dbPut('floors',f);renderStage();renderPinPanel();return}
   if(d.bld){const b=bldById(d.bld);if(!b||!t.value.trim())return renderPlan();b.name=t.value.trim();await dbPut('buildings',b);renderFloorList();renderStage();return}
-  if(d.pf){S.project[d.pf]=t.value;await dbPut('kv',S.project);if(d.pf==='name')document.querySelectorAll('[data-pf="name"]').forEach(i=>{if(i!==t)i.value=t.value});return}
+  if(d.pf){S.project[d.pf]=t.value;await dbPut('kv',S.project);if(d.pf==='name')document.querySelectorAll('[data-pf="name"]').forEach(i=>{if(i!==t)i.value=t.value});if(d.pf==='rate'){const v=parseAmount(t.value);S.project.rate=v;await dbPut('kv',S.project);renderArbeit()}return}
   if(d.split){const b=belegById(t.closest('tr').dataset.id);if(!b)return;b.split=b.split||{};const v=parseAmount(t.value);if(v==='')delete b.split[d.split];else b.split[d.split]=v;await dbPut('belege',b);renderBelege();return}
   if(d.bf){const b=belegById(t.closest('tr').dataset.id);if(!b)return;if(b.auto&&b.auto[d.bf]){b.auto[d.bf]=false;t.classList.remove('auto')}if(d.bf==='date')b.dateAuto=false;
     if(d.bf==='amount'){b.amount=parseAmount(t.value);t.value=b.amount===''?'':chf(b.amount)}
@@ -1014,8 +1117,9 @@ async function doPrint(){
    <tr><td>Erstellt am</td><td>${fmtDate(today())}</td></tr>
    <tr><td>Umfang</td><td>${fl.length} Plan/Pläne · ${S.pins.length} Pins · ${S.pins.reduce((s,p)=>s+p.entries.length,0)} Einträge · ${S.pins.reduce((s,p)=>s+pinPhotos(p).length,0)} Fotos · ${S.belege.length} Belege</td></tr>
    ${allMats().length?`<tr><td>Material total</td><td>CHF ${chf(matTotal(allMats()))}<br><small>${GEWERKE.map(g=>{const t=matTotal(allMats().filter(m=>(m.gw||'Holzbau')===g));return t?g+' '+chf(t):''}).filter(Boolean).join(' · ')}</small></td></tr>`:''}
+   ${S.work.length?`<tr><td>Arbeitszeit</td><td>${hfmt(sumH(S.work))} · CHF ${chf(sumC(S.work))}</td></tr>`:''}
    ${S.belege.length?`<tr><td>Total Belege</td><td>CHF ${chf(S.belege.reduce((s,b)=>s+(+b.amount||0),0))}</td></tr>`:''}</table>
-   <h3>Inhalt</h3><ol>${fl.map(f=>`<li>${esc(floorLabel(f))} (${pinsOf(f.id).length} Pins${roomsOf(f).length?' in '+roomsOf(f).length+' Zimmern: '+roomsOf(f).map(r=>esc(r.name)).join(', '):''})</li>`).join('')}${o.entries?'<li>Kostenübersicht nach Zimmer und Pin</li>':''}${o.mats&&allMats().length?'<li>Materialbezug</li>':''}${o.list&&S.belege.length?'<li>Belegliste</li>':''}${o.att&&S.belege.length?'<li>Anhang: Belege</li>':''}</ol></section>`;
+   <h3>Inhalt</h3><ol>${fl.map(f=>`<li>${esc(floorLabel(f))} (${pinsOf(f.id).length} Pins${roomsOf(f).length?' in '+roomsOf(f).length+' Zimmern: '+roomsOf(f).map(r=>esc(r.name)).join(', '):''})</li>`).join('')}${o.entries?'<li>Kostenübersicht nach Zimmer und Pin</li>':''}${o.mats&&allMats().length?'<li>Materialbezug</li>':''}${o.list&&S.belege.length?'<li>Belegliste</li>':''}${o.work&&!o.gw&&S.work.length?'<li>Arbeitszeit</li>':''}<li>Gesamtbetrag Projekt</li>${o.att&&S.belege.length?'<li>Anhang: Belege</li>':''}</ol></section>`;
   const G=o.gw,eOk=e=>!G||entTags(e).includes(G);
   for(const f of fl){const pins=pinsOf(f.id).filter(p=>p.entries.some(eOk));if(G&&!pins.length)continue;
     if(o.plans&&f.planId){const b=blobMap.get(f.planId)||{};const w=b.w||1,hh=b.h||1;const wmm=Math.min(184,240*w/hh);
@@ -1026,8 +1130,8 @@ async function doPrint(){
       const pb=belegeSorted().filter(b=>pinBelegIds(p).includes(b.id)&&(!G||b.gewerk===G));
       const bSum=pb.reduce((x,b)=>x+shareOf(b,p.id),0),mSum=matTotal(es.flatMap(e=>e.mats));rb+=bSum;rm+=mSum;
       h+=`<section class="pinsec"><h2 class="pinh"><span class="enr" style="display:inline-flex;margin-right:2mm;vertical-align:middle">${p.nr}</span>${esc(p.title||'Ohne Titel')} <span style="font-weight:400;color:#666;font-size:11pt">· ${esc(floorLabel(f))}${grp.room?' · '+esc(grp.room.name):''}</span></h2>
-      <h3 class="ph">Fortschritte${es.length?` <span style="font-weight:400;color:#666">(${fmtDate(es[0].date)}${es.length>1?' – '+fmtDate(es[es.length-1].date):''})</span>`:''}</h3>
-      ${es.map(e=>`<div class="ent-p"><div class="edt">${fmtDate(e.date)||'ohne Datum'}${entTags(e).length?` <span style="font-weight:400;color:#555">· ${entTags(e).join(', ')}</span>`:''}</div>
+      <h3 class="ph">Fortschritte</h3>
+      ${es.map(e=>`<div class="ent-p"><div class="edt">Eintrag ${entNo(p,e)}${entTags(e).length?` <span style="font-weight:400;color:#555">· ${entTags(e).join(', ')}</span>`:''}</div>
         ${e.note?`<p>${nl2br(e.note)}</p>`:''}${e.material?`<p><i>Material:</i> ${nl2br(e.material)}</p>`:''}
         ${GEWERKE.map(g=>{const t=e.gwText[g]||'',ms=matsOf(e,g).map(x=>x[0]);if(!t&&!ms.length)return '';return `${t?`<p><b>${g}:</b> ${nl2br(t)}</p>`:`<p><b>${g}-Material:</b></p>`}${ms.length?matTable(ms):''}`}).join('')}
         ${e.photoIds.length?`<div class="eph">${e.photoIds.map(id=>`<img src="${urlOf(id)}" alt="">`).join('')}</div>`:''}</div>`).join('')||'<p style="color:#666">Keine Einträge.</p>'}
@@ -1044,8 +1148,7 @@ async function doPrint(){
     const ohne=belegeSorted().filter(b=>(!G||b.gewerk===G)&&!S.pins.some(p=>pinBelegIds(p).includes(b.id)));const to=ohne.reduce((x,b)=>x+(+b.amount||0),0);
     h+=`<section class="msum"><h2>Kostenübersicht nach Zimmer und Pin</h2><table class="mt"><thead><tr><th>Plan</th><th>Zimmer</th><th>Pin</th><th class="r">Belege CHF</th><th class="r">Holzbau-Material CHF</th><th class="r">Total CHF</th></tr></thead><tbody>${rows.join('')}
       <tr class="tot"><td colspan="3">Total Pins</td><td class="r">${chf(tb)}</td><td class="r">${tm?chf(tm):''}</td><td class="r">${chf(tb+tm)}</td></tr></tbody></table>
-      ${ohne.length?`<h3>Belege ohne Pin-Zuordnung</h3><table class="mt"><tbody>${ohne.map(b=>`<tr><td>B-${pad(b.nr)}</td><td>${fmtDate(b.date)}</td><td>${esc(b.supplier)}</td><td>${esc(b.desc)}</td><td class="r">${b.amount===''?'':chf(b.amount)}</td></tr>`).join('')}<tr class="tot"><td colspan="4">Total ohne Pin</td><td class="r">${chf(to)}</td></tr></tbody></table>`:''}
-      <h3>Gesamt</h3><table class="mt"><tbody><tr><td>Belege (Pins + ohne Pin)</td><td class="r">CHF ${chf(tb+to)}</td></tr>${tm?`<tr><td>Holzbau-Material (Regiepreisliste netto)</td><td class="r">CHF ${chf(tm)}</td></tr>`:''}<tr class="tot"><td>Total</td><td class="r">CHF ${chf(tb+to+tm)}</td></tr></tbody></table></section>`}
+      ${ohne.length?`<h3>Belege ohne Pin-Zuordnung</h3><table class="mt"><tbody>${ohne.map(b=>`<tr><td>B-${pad(b.nr)}</td><td>${fmtDate(b.date)}</td><td>${esc(b.supplier)}</td><td>${esc(b.desc)}</td><td class="r">${b.amount===''?'':chf(b.amount)}</td></tr>`).join('')}<tr class="tot"><td colspan="4">Total ohne Pin</td><td class="r">${chf(to)}</td></tr></tbody></table>`:''}</section>`}
   if(o.mats&&allMats().length&&(!o.gw||o.gw==='Holzbau')){const all=allMats();
     h+=`<section class="msum"><h2>Materialbezug</h2><p style="color:#666">Summe aller Einträge pro Gewerk. Holzbau: Netto-Einkaufspreise gemäss Regiepreisliste S-0113; übrige Gewerke: erfasste Preise der Lieferanten.</p>`;
     for(const g of GEWERKE){const ms=all.filter(m=>(m.gw||'Holzbau')===g);if(!ms.length)continue;const agg=new Map();
@@ -1062,6 +1165,16 @@ async function doPrint(){
     <h3>Totale nach Gewerk</h3><table><tbody>${[...GEWERKE,''].filter(g=>bs.some(b=>(b.gewerk||'')===g)).map(g=>`<tr><td>${g||'Ohne Gewerk'}</td><td style="text-align:right">${chf(bs.filter(b=>(b.gewerk||'')===g).reduce((s,b)=>s+(+b.amount||0),0))}</td></tr>`).join('')}</tbody></table>
     <h3>Totale nach Kategorie</h3><table><tbody>${CATS.filter(c=>bs.some(b=>b.category===c)).map(c=>`<tr><td>${c}</td><td style="text-align:right">${chf(bs.filter(b=>b.category===c).reduce((s,b)=>s+(+b.amount||0),0))}</td></tr>`).join('')}</tbody></table>
     <h3>Totale nach Jahr</h3><table><tbody>${[...new Set(bs.map(b=>(b.date||'').slice(0,4)))].sort().map(y=>`<tr><td>${y||'ohne Datum'}</td><td style="text-align:right">${chf(bs.filter(b=>(b.date||'').slice(0,4)===y).reduce((s,b)=>s+(+b.amount||0),0))}</td></tr>`).join('')}</tbody></table></section>`}
+  if(o.work&&!G&&S.work.length){const ws=workSorted(),tz=ws.some(w=>w.von||w.bis),yr=new Map(),rt=new Set(ws.map(workRate));
+    for(const w of ws){const y=(w.date||'').slice(0,4)||'ohne Datum',a=yr.get(y)||[0,0];a[0]+=workHours(w);a[1]+=workCost(w);yr.set(y,a)}
+    h+=`<section class="msum"><h2>Arbeitszeit</h2>${rt.size===1?`<p style="color:#666">Stundenansatz CHF ${chf([...rt][0])}</p>`:''}<table class="mt"><thead><tr><th>Datum</th>${tz?'<th>Von</th><th>Bis</th><th class="r">Pause</th>':''}<th>Bemerkung</th><th class="r">Std.</th>${rt.size>1?'<th class="r">Ansatz</th>':''}<th class="r">CHF</th></tr></thead><tbody>
+    ${ws.map(w=>`<tr><td>${fmtDate(w.date)}</td>${tz?`<td>${esc(w.von||'')}</td><td>${esc(w.bis||'')}</td><td class="r">${w.pause?w.pause+' Min':''}</td>`:''}<td>${esc(w.note||'')}</td><td class="r">${chf(workHours(w))}</td>${rt.size>1?`<td class="r">${chf(workRate(w))}</td>`:''}<td class="r">${chf(workCost(w))}</td></tr>`).join('')}
+    <tr class="tot"><td colspan="${tz?5:2}">Total Arbeitszeit</td><td class="r">${chf(sumH(ws))}</td>${rt.size>1?'<td></td>':''}<td class="r">${chf(sumC(ws))}</td></tr></tbody></table>
+    <h3>Nach Jahr</h3><table class="mt"><thead><tr><th>Jahr</th><th class="r">Std.</th><th class="r">CHF</th></tr></thead><tbody>${[...yr].sort().map(([y,[hh,c]])=>`<tr><td>${y}</td><td class="r">${chf(hh)}</td><td class="r">${chf(c)}</td></tr>`).join('')}</tbody></table></section>`}
+  {const bT=bs.reduce((x,b)=>x+(+b.amount||0),0),mT=matTotal(G?allMats().filter(m=>(m.gw||'Holzbau')===G):allMats()),wT=!G?sumC(S.work):0,wH=!G?sumH(S.work):0;
+    h+=`<section class="msum"><h2>Gesamtbetrag Projekt${G?' – Gewerk '+esc(G):''}</h2><table class="mt" style="font-size:11pt"><tbody>
+    <tr><td>Belege</td><td class="r">CHF ${chf(bT)}</td></tr>${mT?`<tr><td>Material (erfasste Mengen, Netto-Preise)</td><td class="r">CHF ${chf(mT)}</td></tr>`:''}${wH?`<tr><td>Arbeitszeit (${hfmt(wH)})</td><td class="r">CHF ${chf(wT)}</td></tr>`:''}
+    <tr class="tot"><td>Gesamtbetrag</td><td class="r">CHF ${chf(bT+mT+wT)}</td></tr></tbody></table></section>`}
   if(o.att)for(const b of bs){if(!b.previewId)continue;const pg=(blobMap.get(b.previewId)||{}).pages;
     h+=`<section class="att"><h3>B-${pad(b.nr)} · ${fmtDate(b.date)} · ${esc(b.supplier||b.desc)}${b.amount!==''?' · CHF '+chf(b.amount):''}${pg>1?` <span style="font-weight:400;color:#666">(Seite 1 von ${pg})</span>`:''}</h3><img src="${urlOf(b.previewId)}" alt=""></section>`}
   const pr=$('#print');pr.innerHTML=h;
@@ -1074,7 +1187,7 @@ async function doPrint(){
 const toDataURL=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(r.error);r.readAsDataURL(b)});
 function fromDataURL(u){const i=u.indexOf(',');const mime=(u.slice(0,i).match(/:(.*?);/)||[])[1]||'application/octet-stream';const bin=atob(u.slice(i+1));const a=new Uint8Array(bin.length);for(let k=0;k<bin.length;k++)a[k]=bin.charCodeAt(k);return new Blob([a],{type:mime})}
 async function doBackup(){toast('Sicherung wird erstellt …',60000);
-  try{const parts=[`{"app":"baustellenprotokoll","version":1,"date":${JSON.stringify(new Date().toISOString())},"project":${JSON.stringify(S.project)},"floors":${JSON.stringify(S.floors)},"buildings":${JSON.stringify(S.buildings)},"articles":${JSON.stringify(S.articles)},"pins":${JSON.stringify(S.pins)},"belege":${JSON.stringify(S.belege)},"blobs":[`];
+  try{const parts=[`{"app":"baustellenprotokoll","version":1,"date":${JSON.stringify(new Date().toISOString())},"project":${JSON.stringify(S.project)},"floors":${JSON.stringify(S.floors)},"buildings":${JSON.stringify(S.buildings)},"articles":${JSON.stringify(S.articles)},"work":${JSON.stringify(S.work)},"pins":${JSON.stringify(S.pins)},"belege":${JSON.stringify(S.belege)},"blobs":[`];
     let first=true;for(const b of S.blobs){if(!b.blob)continue;const {blob,...meta}=b;parts.push((first?'':',')+JSON.stringify(Object.assign(meta,{data:await toDataURL(blob)})));first=false}
     parts.push(']}');const out=new Blob(parts,{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(out);
     a.download=`Sicherung ${(S.project.name||'Baustellenprotokoll').replace(/[\\/:*?"<>|]/g,'')} ${today()}.json`;document.body.appendChild(a);a.click();a.remove();
@@ -1085,10 +1198,10 @@ async function doRestore(file){if(!file)return;
   if(d.app!=='baustellenprotokoll'){alert('Die Datei ist keine Sicherung des Baustellenprotokolls.');return}
   if(!confirm(`Sicherung vom ${fmtDate((d.date||'').slice(0,10))} laden?\n\n${(d.floors||[]).length} Geschosse, ${(d.pins||[]).length} Pins, ${(d.belege||[]).length} Belege.\n\nDie aktuellen Daten in diesem Browser werden dabei ersetzt.`))return;
   toast('Sicherung wird geladen …',60000);
-  try{for(const s of ['kv','floors','buildings','pins','belege','blobs','articles'])await dbClear(s);
+  try{for(const s of ['kv','floors','buildings','pins','belege','blobs','articles','work'])await dbClear(s);
     for(const u of urls.values())URL.revokeObjectURL(u);urls.clear();blobMap.clear();
-    S.project=Object.assign({id:'project'},d.project||{});S.floors=d.floors||[];S.buildings=d.buildings||[];S.articles=d.articles||[];S.pins=(d.pins||[]).map(normPin);S.belege=d.belege||[];S.blobs=[];
-    await dbPut('kv',S.project);for(const f of S.floors)await dbPut('floors',f);for(const x of S.buildings)await dbPut('buildings',x);for(const x of S.articles)await dbPut('articles',x);for(const p of S.pins)await dbPut('pins',p);for(const b of S.belege)await dbPut('belege',b);
+    S.project=Object.assign({id:'project'},d.project||{});S.floors=d.floors||[];S.buildings=d.buildings||[];S.articles=d.articles||[];S.work=d.work||[];S.pins=(d.pins||[]).map(normPin);S.belege=d.belege||[];S.blobs=[];
+    await dbPut('kv',S.project);for(const f of S.floors)await dbPut('floors',f);for(const x of S.buildings)await dbPut('buildings',x);for(const x of S.articles)await dbPut('articles',x);for(const x of S.work)await dbPut('work',x);for(const p of S.pins)await dbPut('pins',p);for(const b of S.belege)await dbPut('belege',b);
     for(const r of d.blobs||[]){const {data,...meta}=r;const rec=Object.assign(meta,{blob:fromDataURL(data)});await dbPut('blobs',rec);S.blobs.push(rec);blobMap.set(rec.id,rec)}
     UI.floor=firstFloorId();UI.pin=null;render();toast('Sicherung geladen',3000);const m=await syncMeta();m.lastPull=null;await rawPut('kv',m);syncNow()}
   catch(e){console.error(e);alert('Fehler beim Laden: '+e.message)}}
@@ -1122,8 +1235,8 @@ function localRec(store,id){if(store==='kv')return id==='project'?S.project:null
 const blobMeta=r=>{const {blob,id,...m}=r;return m};
 
 async function firstUpload(){if(SYNCMETA.initialized)return;
-  const hasData=S.floors.length||S.pins.length||S.belege.length;
-  if(hasData){await enqueue('kv','project','put');for(const st of ['blobs','articles','buildings','floors','belege','pins'])for(const r of S[st])await enqueue(st,r.id,'put')}
+  const hasData=S.floors.length||S.pins.length||S.belege.length||S.work.length;
+  if(hasData){await enqueue('kv','project','put');for(const st of ['blobs','articles','buildings','floors','belege','pins','work'])for(const r of S[st])await enqueue(st,r.id,'put')}
   SYNCMETA.initialized=true;await rawPut('kv',SYNCMETA)}
 async function push(){
   const q=(await dbAll('queue')).sort((a,b)=>a.t-b.t);if(!q.length)return;
@@ -1188,16 +1301,16 @@ async function logout(){const q=await queueCount();
   if(q&&!confirm(`${q} Änderung(en) sind noch nicht hochgeladen und gehen beim Abmelden verloren. Trotzdem abmelden?`))return;
   if(!q&&!confirm('Abmelden? Die Daten auf diesem Gerät werden entfernt, in der Cloud bleiben sie erhalten.'))return;
   try{fetch(CFG.url+'/auth/v1/logout',{method:'POST',headers:{apikey:CFG.key,Authorization:'Bearer '+SES.access_token}})}catch(e){}
-  for(const s of ['kv','floors','buildings','pins','belege','blobs','queue','articles'])await dbClear(s);
+  for(const s of ['kv','floors','buildings','pins','belege','blobs','queue','articles','work'])await dbClear(s);
   SES=null;saveSes();location.reload()}
 
 /* ---------- Start ---------- */
 (async()=>{
   try{await openDB()}catch(e){document.body.innerHTML='<p style="padding:40px">Der Browser erlaubt hier keine lokale Datenbank. Bitte die Datei mit Chrome oder Safari öffnen.</p>';return}
-  const [kv,f,p,b,bl,bd,ar]=await Promise.all(['kv','floors','pins','belege','blobs','buildings','articles'].map(dbAll));
+  const [kv,f,p,b,bl,bd,ar,wk]=await Promise.all(['kv','floors','pins','belege','blobs','buildings','articles','work'].map(dbAll));
   const pr=kv.find(x=>x.id==='project');if(pr)S.project=Object.assign(S.project,pr);
   SYNCMETA=kv.find(x=>x.id==='sync')||{id:'sync',lastPull:null,initialized:false};
-  S.floors=f;S.buildings=bd;S.articles=ar;S.pins=p;S.belege=b;S.blobs=bl;bl.forEach(x=>blobMap.set(x.id,x));
+  S.floors=f;S.buildings=bd;S.articles=ar;S.work=wk;S.pins=p;S.belege=b;S.blobs=bl;bl.forEach(x=>blobMap.set(x.id,x));
   S.pins.forEach(normPin);
   UI.floor=firstFloorId();
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
