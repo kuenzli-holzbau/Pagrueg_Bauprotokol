@@ -215,6 +215,9 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .fcap b{font-size:13px}
 .fcap .mut{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fcap a{color:var(--acc);cursor:pointer;font-weight:600;margin-top:2px}
+.emv,.ent.c span.emv{display:inline-flex;gap:4px;margin-left:auto;flex:none;align-self:center;overflow:visible}
+.emv .b{padding:3px 9px}
+.emv .b:disabled{opacity:.35;cursor:default}
 .autosave{font-size:11px;color:var(--mut);margin:-4px 0 8px}
 .efoot{display:flex;justify-content:flex-end;margin-top:12px}
 .mtot{text-align:right;font-weight:700;margin:2px 0 8px;font-size:13px}
@@ -395,7 +398,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='3 (08.10.2026, ohne Datum in Pins, Arbeitszeit fürs Projekt)';
+const APP_VERSION='4 (08.10.2026, Einträge verschiebbar)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 const GEWERKE=['Holzbau','Sanitär','Elektro','Fliesen','Gipser','Maler'];
 const GWC={Holzbau:'#92400e',Sanitär:'#2563eb',Elektro:'#ca8a04',Fliesen:'#0d9488',Gipser:'#6b7280',Maler:'#9333ea'};
@@ -655,7 +658,7 @@ function renderPinPanel(){
     el.innerHTML=`${bl}${rl}<div class="hd">Einträge ${esc(floorLabel(cf))}</div>${pins.length?gr.map(g=>(gr.length>1||g.room?`<div class="rgh"><span>${g.room?'▭ '+esc(g.room.name):'Ohne Zimmer'}</span><span>${g.pins.length}</span></div>`:'')+g.pins.map(pli).join('')).join(''):'<p class="mut">Noch keine Pins. Klicke oben auf «📍 Pin setzen» und dann auf die Stelle im Grundriss.</p>'}`;
     return}
   const e=curEntry(p);
-  const entHtml=entriesOf(p).map(x=>e&&x.id===e.id?entryEditor(p,x):`<div class="ent c" data-act="selEntry" data-id="${x.id}"><b>Eintrag ${entNo(p,x)}</b><span>${esc((x.note||'').split('\n')[0]||'–')}</span><small class="mut">${[x.photoIds.length?'📷'+x.photoIds.length:'',x.belegIds.length?'🧾'+x.belegIds.length:'',x.mats.length?'🪵 CHF '+chf(matTotal(x.mats)):''].filter(Boolean).join(' ')}${entTags(x).length?'<br>'+gwDots(entTags(x)):''}</small></div>`).join('');
+  const entHtml=entriesOf(p).map(x=>e&&x.id===e.id?entryEditor(p,x):`<div class="ent c" data-act="selEntry" data-id="${x.id}"><b>Eintrag ${entNo(p,x)}</b><span>${esc((x.note||'').split('\n')[0]||'–')}</span><small class="mut">${[x.photoIds.length?'📷'+x.photoIds.length:'',x.belegIds.length?'🧾'+x.belegIds.length:'',x.mats.length?'🪵 CHF '+chf(matTotal(x.mats)):''].filter(Boolean).join(' ')}${entTags(x).length?'<br>'+gwDots(entTags(x)):''}</small>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="-1" title="Nach oben" ${entNo(p,x)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="1" title="Nach unten" ${entNo(p,x)===p.entries.length?'disabled':''}>▼</button></span>`:''}</div>`).join('');
   el.innerHTML=`<div class="hd"><button class="b sm" data-act="closePin">‹ Alle Pins</button><span class="pnr">${p.nr}</span></div>
   <label>Titel / Raum<input data-f="title" value="${esc(p.title)}" placeholder="z.B. Bad OG – Wandanschluss"></label>
   ${roomsOf(floorById(p.floorId)).length?`<p class="proom">▭ Zimmer: ${roomOfPin(p)?esc(roomOfPin(p).name):'<span class="mut" style="font-weight:400">ausserhalb der Zimmerflächen</span>'}</p>`:''}
@@ -691,7 +694,7 @@ function entryEditor(p,e){
       <textarea data-gwt="${g}" rows="2" placeholder="Notiz ${g} …">${esc(t)}</textarea>
       <div class="chips">${bl.map(chip).join('')}</div>${sel(g)}</div></details>`};
   const other=entBelegeGw(e,'');
-  return `<div class="ent o"><div class="ehd"><b style="flex:1">Eintrag ${entNo(p,e)}</b><button class="b sm d" data-act="delEntry" title="Eintrag löschen">Eintrag löschen</button></div>
+  return `<div class="ent o"><div class="ehd"><b style="flex:1">Eintrag ${entNo(p,e)}</b>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="-1" title="Nach oben" ${entNo(p,e)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="1" title="Nach unten" ${entNo(p,e)===p.entries.length?'disabled':''}>▼</button></span>`:''}<button class="b sm d" data-act="delEntry" title="Eintrag löschen">Eintrag löschen</button></div>
   <p class="autosave">💾 Alles wird automatisch gespeichert.</p>
   <div class="lbl">Gewerke (antippen)</div>
   <div class="tags">${GEWERKE.map(g=>`<button class="tagb ${(e.tags||[]).includes(g)?'on':''}" style="--c:${GWC[g]}" data-act="togTag" data-id="${g}">${g}</button>`).join('')}</div>
@@ -957,6 +960,8 @@ const ACT={
     UI.floor=firstFloorId();UI.pin=null;renderPlan()},
   selPin:id=>{UI.pin=id;UI.entry=null;renderPlan()},
   selEntry:id=>{UI.entry=id;renderPinPanel()},
+  moveEntry:async(id,a)=>{const p=pinById(UI.pin);if(!p)return;const i=p.entries.findIndex(x=>x.id===id),j=i+(+a.dataset.dir);if(i<0||j<0||j>=p.entries.length)return;
+    [p.entries[i],p.entries[j]]=[p.entries[j],p.entries[i]];clearTimeout(saveTimers[p.id]);delete saveTimers[p.id];await dbPut('pins',p);renderPinPanel()},
   togLbl:()=>{SHOWLBL=!SHOWLBL;try{localStorage.setItem(APP.id+'_lbl',SHOWLBL?'1':'0')}catch(_){}renderStage()},
   togTag:async g=>{const p=pinById(UI.pin),e=curEntry(p);if(!e)return;e.tags=e.tags||[];e.tags=e.tags.includes(g)?e.tags.filter(x=>x!==g):[...e.tags,g];await dbPut('pins',p);renderPinPanel();renderStage()},
   pfSet:g=>{UI.pf=g||'';renderFotos()},
