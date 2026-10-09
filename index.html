@@ -92,6 +92,14 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .bt th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);padding:9px 8px;border-bottom:1px solid var(--line);background:#faf9f6}
 .bt td{padding:5px 8px;border-bottom:1px solid #f0ede7;vertical-align:middle}
 .bt tr.hl td{background:var(--acc2)}
+.bt tr.dup td{background:#fff4e5}
+.bt tr.dup.hl td{background:var(--acc2)}
+.dupw{margin-top:4px;font-size:11px;color:#b45309;font-weight:700;display:flex;flex-direction:column;align-items:flex-start;gap:2px;white-space:normal;max-width:120px}
+.dupw a{color:#b45309;text-decoration:underline;cursor:pointer}
+.dupw small{font-weight:400;color:#92400e}
+.dupw .b{font-size:11px;padding:2px 6px;margin-top:2px}
+.dupf{color:#b45309;border-color:#f59e0b}
+.dupf.on{background:#f59e0b;color:#fff}
 .bt input.auto{background:#fef9c3!important;border-color:#eab308!important}
 .bt .ra{display:flex;gap:4px}
 .spl div{display:flex;align-items:center;gap:6px;margin-bottom:3px}
@@ -398,7 +406,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='4 (08.10.2026, Einträge verschiebbar)';
+const APP_VERSION='5 (09.10.2026, doppelte Belege erkennen)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 const GEWERKE=['Holzbau','Sanitär','Elektro','Fliesen','Gipser','Maler'];
 const GWC={Holzbau:'#92400e',Sanitär:'#2563eb',Elektro:'#ca8a04',Fliesen:'#0d9488',Gipser:'#6b7280',Maler:'#9333ea'};
@@ -801,23 +809,41 @@ function katSearch(q,g){const w=q.toLowerCase().split(/\s+/).filter(Boolean);if(
   return top.length?top.map(([,t,k])=>t==='k'?`<div class="kr" data-act="addMat" data-id="${k[0]}" data-gw="${g}">${esc(k[1])}<small>${k[0]} · ${k[3]==null?'kein Preis':'CHF '+chf(k[3])} / ${esc(k[2])}</small></div>`
     :`<div class="kr" data-act="addArt" data-id="${k.id}" data-gw="${g}">⭐ ${esc(k.name)}<small>${[k.code,k.supplier,k.price==null?'kein Preis':'CHF '+chf(k.price)+' / '+k.unit].filter(Boolean).map(esc).join(' · ')}</small></div>`).join('')
     :`<div class="kr mut">Nichts gefunden – ${g==='Holzbau'?'':'im Shop suchen oder '}«+ Neuer Artikel» verwenden.</div>`}
+/* ---------- Doppelte Belege erkennen ----------
+   gleiche Datei · gleicher Betrag + gleiches Datum · gleicher Betrag + gleicher Lieferant (±7 Tage)
+   «Kein Duplikat» merkt sich das Paar (b.notDup), dann wird es nicht mehr gemeldet. */
+const normSup=x=>String(x||'').toLowerCase().replace(/\b(ag|gmbh|sa|ltd|co|kg)\b/g,'').replace(/[^a-z0-9äöü]/g,'');
+const dayDiff=(a,b)=>a&&b?Math.abs((new Date(a)-new Date(b))/864e5):999;
+function dupReason(a,b){if((a.notDup||[]).includes(b.id)||(b.notDup||[]).includes(a.id))return '';
+  const fa=blobMap.get(a.fileId),fb=blobMap.get(b.fileId);if(fa&&fb&&fa.hash&&fa.hash===fb.hash)return 'gleiche Datei';
+  const am=+a.amount,bm=+b.amount;if(!(am>0)||Math.abs(am-bm)>0.004)return '';
+  if(a.date&&a.date===b.date)return 'gleicher Betrag und Datum';
+  const sa=normSup(a.supplier);if(sa.length>=3&&sa===normSup(b.supplier)&&dayDiff(a.date,b.date)<=7)return 'gleicher Betrag und Lieferant';
+  return ''}
+function dupMap(){const m=new Map(),L=S.belege;for(let i=0;i<L.length;i++)for(let j=i+1;j<L.length;j++){const r=dupReason(L[i],L[j]);if(!r)continue;
+    for(const [x,y] of [[L[i],L[j]],[L[j],L[i]]]){if(!m.has(x.id))m.set(x.id,[]);m.get(x.id).push({b:y,r})}}return m}
+const dupHtml=(b,dm)=>{const l=dm.get(b.id);return l?`<div class="dupw">⚠ doppelt?${l.map(x=>`<a data-act="gotoDup" data-id="${x.b.id}" title="${esc(x.r)}">B-${pad(x.b.nr)}</a>`).join('')}<small>${esc(l[0].r)}</small><button class="b sm" data-act="notDup" data-id="${b.id}" title="Ist kein Duplikat – Meldung ausblenden">Kein Duplikat</button></div>`:''};
+function updDupMarks(){const dm=dupMap();document.querySelectorAll('#v-belege tbody tr[data-id]').forEach(tr=>{const b=belegById(tr.dataset.id);if(!b)return;tr.classList.toggle('dup',dm.has(b.id));const c=tr.querySelector('.dupc');if(c)c.innerHTML=dupHtml(b,dm)});
+  const n=$('#dupn');if(n){n.textContent=dm.size;n.closest('.dupf').hidden=!dm.size&&!UI.fd}}
 function filteredBelege(){const q=UI.q.trim().toLowerCase();
-  return belegeSorted().filter(b=>(!UI.fy||(b.date||'').startsWith(UI.fy))&&(!UI.fc||b.category===UI.fc)&&(!UI.fg||(UI.fg==='-'?!b.gewerk:b.gewerk===UI.fg))&&(!q||[b.supplier,b.desc,b.category,b.gewerk,'b-'+pad(b.nr),String(b.amount)].join(' ').toLowerCase().includes(q)))}
+  const dm=UI.fd?dupMap():null;
+  return belegeSorted().filter(b=>(!dm||dm.has(b.id))&&(!UI.fy||(b.date||'').startsWith(UI.fy))&&(!UI.fc||b.category===UI.fc)&&(!UI.fg||(UI.fg==='-'?!b.gewerk:b.gewerk===UI.fg))&&(!q||[b.supplier,b.desc,b.category,b.gewerk,'b-'+pad(b.nr),String(b.amount)].join(' ').toLowerCase().includes(q)))}
 function renderBelege(){
   const years=[...new Set(S.belege.map(b=>(b.date||'').slice(0,4)).filter(Boolean))].sort();
-  const list=filteredBelege();const sum=list.reduce((s,b)=>s+(+b.amount||0),0);
+  const list=filteredBelege();const sum=list.reduce((s,b)=>s+(+b.amount||0),0);const dm=dupMap();
   const fn=id=>floorLabel(floorById(id));
   $('#v-belege').innerHTML=`<div class="bbar"><label class="b p">📷 Beleg fotografieren<input type="file" accept="image/*" capture="environment" hidden data-up="belege"></label><label class="b">+ Fotos / PDFs<input type="file" accept="image/*,application/pdf" multiple hidden data-up="belege"></label>
     <select data-ch="fy"><option value="">Alle Jahre</option>${years.map(y=>`<option ${UI.fy===y?'selected':''}>${y}</option>`).join('')}</select>
     <select data-ch="fc"><option value="">Alle Kategorien</option>${CATS.map(c=>`<option ${UI.fc===c?'selected':''}>${c}</option>`).join('')}</select>
     <select data-ch="fg"><option value="">Alle Gewerke</option>${GEWERKE.map(g=>`<option ${UI.fg===g?'selected':''}>${g}</option>`).join('')}<option value="-" ${UI.fg==='-'?'selected':''}>Ohne Gewerk</option></select>
     <input type="search" placeholder="Suchen … (Enter)" value="${esc(UI.q)}" data-ch="q">
+    <label class="b dupf ${UI.fd?'on':''}" ${dm.size||UI.fd?'':'hidden'}><input type="checkbox" data-ch="fd" ${UI.fd?'checked':''} hidden>⚠ Doppelte: <span id="dupn">${dm.size}</span></label>
     <span class="sp"></span><span class="sum">${list.length} Beleg(e) · Total CHF <b>${chf(sum)}</b></span></div>
     <div class="drop" id="drop">Fotos oder PDFs von Belegen hierher ziehen – oder oben «+ Fotos / PDFs»</div>
     ${list.length?`<div class="tw"><table class="bt"><thead><tr><th></th><th>Nr.</th><th style="width:140px">Datum</th><th>Lieferant / Firma</th><th>Beschreibung</th><th style="width:140px">Kategorie</th><th style="width:120px">Gewerk</th><th class="r" style="width:110px">Betrag CHF</th><th style="width:190px">Pins</th><th></th></tr></thead><tbody>
     ${list.map(b=>{const pins=S.pins.filter(p=>pinBelegIds(p).includes(b.id));
-      return `<tr data-id="${b.id}" class="${UI.hl===b.id?'hl':''}"><td><div class="bth" data-act="openBeleg" data-id="${b.id}" title="Beleg öffnen">${b.previewId?`<img src="${urlOf(b.previewId)}" alt="">`:''}${isPdfBeleg(b)?'<span class="tag">PDF</span>':''}</div></td>
-      <td class="mut" style="white-space:nowrap">B-${pad(b.nr)}</td><td><input type="date" data-bf="date" class="${b.auto&&b.auto.date?'auto':''}" value="${esc(b.date)}"></td>
+      return `<tr data-id="${b.id}" class="${UI.hl===b.id?'hl':''}${dm.has(b.id)?' dup':''}"><td><div class="bth" data-act="openBeleg" data-id="${b.id}" title="Beleg öffnen">${b.previewId?`<img src="${urlOf(b.previewId)}" alt="">`:''}${isPdfBeleg(b)?'<span class="tag">PDF</span>':''}</div></td>
+      <td class="mut" style="white-space:nowrap">B-${pad(b.nr)}<div class="dupc">${dupHtml(b,dm)}</div></td><td><input type="date" data-bf="date" class="${b.auto&&b.auto.date?'auto':''}" value="${esc(b.date)}"></td>
       <td><input data-bf="supplier" class="${b.auto&&b.auto.supplier?'auto':''}" value="${esc(b.supplier)}" placeholder="Lieferant"></td><td><input data-bf="desc" value="${esc(b.desc)}"></td>
       <td><select data-bf="category">${CATS.map(c=>`<option ${b.category===c?'selected':''}>${c}</option>`).join('')}</select></td>
       <td><select data-bf="gewerk"><option value="">–</option>${GEWERKE.map(g=>`<option ${b.gewerk===g?'selected':''}>${g}</option>`).join('')}</select></td>
@@ -901,7 +927,9 @@ async function addBelege(files){let n=0;const added=[];
     const b={id:uid(),nr:Math.max(0,...S.belege.map(x=>x.nr))+1,date:isoDate(new Date(f.lastModified||Date.now())),supplier:'',desc:f.name.replace(/\.[^.]+$/,''),category:'Material',amount:'',dateAuto:true,by:SES?SES.email:'',fileId:fileRec.id,previewId:prev?prev.id:null};
     S.belege.push(b);await dbPut('belege',b);added.push(b)}
   render();if(!added.length){toast('Keine Bilder oder PDFs gefunden',4000);return}
-  for(const b of added){await recognizeBeleg(b,true);if(UI.tab==='belege')renderBelege()}}
+  for(const b of added){await recognizeBeleg(b,true);if(UI.tab==='belege')renderBelege()}
+  const dm=dupMap(),hit=added.filter(b=>dm.has(b.id));
+  if(hit.length)toast(`⚠ Möglicherweise doppelt erfasst: ${hit.map(b=>`B-${pad(b.nr)} ↔ ${dm.get(b.id).map(x=>'B-'+pad(x.b.nr)).join(', ')}`).join(' · ')} – siehe Filter «⚠ Doppelte»`,9000)}
 async function moveFloor(dir){const cf=curFloor();if(!cf||isSite(cf))return;const fl=floorsOfBld(cf.buildingId);const i=fl.findIndex(f=>f.id===UI.floor);const j=i+dir;if(i<0||j<0||j>=fl.length)return;
   const a=fl[i],b=fl[j];[a.order,b.order]=[b.order,a.order];await dbPut('floors',a);await dbPut('floors',b);renderPlan()}
 
@@ -1004,6 +1032,10 @@ const ACT={
   gotoBeleg:id=>{UI.tab='belege';UI.fy=UI.fc=UI.q='';UI.hl=id;render()},
   gotoPin:(id,a)=>{const p=pinById(id);if(!p)return;const e=a&&a.dataset.b?entryWithBeleg(p,a.dataset.b):null;UI.tab='plan';UI.floor=p.floorId;UI.pin=id;UI.entry=e?e.id:null;UI.zoom=ZOOM0;render()},
   openBeleg:id=>{const b=belegById(id);if(!b)return;if(isPdfBeleg(b)){const w=window.open(urlOf(b.fileId),'_blank');if(!w&&b.previewId)showImg(b.previewId)}else showImg(b.fileId)},
+  gotoDup:id=>{UI.fy='';UI.fc='';UI.fg='';UI.q='';UI.hl=id;renderBelege()},
+  notDup:async id=>{const b=belegById(id),dm=dupMap(),l=dm.get(id)||[];if(!b||!l.length)return;
+    if(!confirm(`B-${pad(b.nr)} ist kein Duplikat von ${l.map(x=>'B-'+pad(x.b.nr)).join(', ')}?\n\nDie Meldung wird für dieses Paar ausgeblendet.`))return;
+    b.notDup=[...new Set([...(b.notDup||[]),...l.map(x=>x.b.id)])];await dbPut('belege',b);updDupMarks();if(UI.fd)renderBelege()},
   delBeleg:async id=>{const b=belegById(id);if(!confirm(`Beleg B-${pad(b.nr)} löschen?`))return;
     S.belege=S.belege.filter(x=>x.id!==id);await dbDel('belege',id);
     for(const p of S.pins.filter(p=>pinBelegIds(p).includes(id))){for(const e of p.entries){e.belegIds=e.belegIds.filter(x=>x!==id);delete e.belegGw[id]}await dbPut('pins',p)}
@@ -1024,6 +1056,7 @@ const CH={
   linkPin:async(v,t)=>{if(!v)return;const b=belegById(t.closest('tr').dataset.id),p=pinById(v);if(!b||!p)return;const e=lastEntry(p);await linkBeleg(p,e,b.id,b.gewerk||'');renderBelege();toast(`Beleg dem letzten Eintrag (Nr. ${entNo(p,e)}) von Pin ${p.nr} zugeordnet`)},
   fg:v=>{UI.fg=v;renderBelege()},
   wy:v=>{UI.wy=v;renderArbeit()},
+  fd:(v,t)=>{UI.fd=t.checked;renderBelege()},
   fy:v=>{UI.fy=v;renderBelege()},fc:v=>{UI.fc=v;renderBelege()},q:v=>{UI.q=v;renderBelege()},
 };
 const UP={workXls:fs=>importWorkXls(fs[0]),plan:fs=>uploadPlan(fs[0]),pinPhotos:addPinPhotos,belege:addBelege,restore:fs=>doRestore(fs[0])};
@@ -1051,7 +1084,9 @@ document.addEventListener('change',async e=>{const t=e.target,d=t.dataset;
     if(d.bf==='amount'){b.amount=parseAmount(t.value);t.value=b.amount===''?'':chf(b.amount)}
     else if(d.bf==='gewerk'){const old=b.gewerk||'';b.gewerk=t.value;for(const p of S.pins){let ch=false;for(const e of p.entries)if(e.belegIds.includes(b.id)&&(e.belegGw[b.id]||'')===old){e.belegGw[b.id]=b.gewerk;ch=true}if(ch)await dbPut('pins',p)}}
     else b[d.bf]=t.value;
-    await dbPut('belege',b);const list=filteredBelege();const s=document.querySelector('.sum');if(s)s.innerHTML=`${list.length} Beleg(e) · Total CHF <b>${chf(list.reduce((x,y)=>x+(+y.amount||0),0))}</b>`}});
+    await dbPut('belege',b);const list=filteredBelege();const s=document.querySelector('.sum');if(s)s.innerHTML=`${list.length} Beleg(e) · Total CHF <b>${chf(list.reduce((x,y)=>x+(+y.amount||0),0))}</b>`;
+    if(d.bf==='amount'||d.bf==='date'||d.bf==='supplier'){const had=t.closest('tr').classList.contains('dup');updDupMarks();const now=dupMap().get(b.id);
+      if(now&&!had)toast(`⚠ B-${pad(b.nr)} ist möglicherweise doppelt: ${now.map(x=>'B-'+pad(x.b.nr)).join(', ')} (${now[0].r})`,7000)}}});
 const saveTimers={};
 document.addEventListener('toggle',e=>{const d=e.target;if(d.tagName==='DETAILS'&&d.dataset&&d.dataset.gw!==undefined){if(d.open)UI.gwOpen.add(d.dataset.gw);else UI.gwOpen.delete(d.dataset.gw)}},true);
 document.addEventListener('input',e=>{const t=e.target;
