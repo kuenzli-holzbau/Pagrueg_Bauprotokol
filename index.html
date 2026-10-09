@@ -107,6 +107,9 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .dupw .b{font-size:11px;padding:2px 6px;margin-top:2px}
 .dupf{color:#b45309;border-color:#f59e0b}
 .dupf.on{background:#f59e0b;color:#fff}
+.bt textarea.bdesc{width:100%;min-width:250px;border:1px solid transparent;background:transparent;padding:5px 6px;border-radius:5px;font:inherit;font-size:12.5px;line-height:1.3;resize:vertical}
+.bt textarea.bdesc:hover,.bt textarea.bdesc:focus{border-color:var(--line);background:#fff;outline:none}
+.bt textarea.auto{background:#fef9c3!important;border-color:#eab308!important}
 .bt input.auto{background:#fef9c3!important;border-color:#eab308!important}
 .bt .ra{display:flex;gap:4px}
 .spl div{display:flex;align-items:center;gap:6px;margin-bottom:3px}
@@ -420,7 +423,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='7 (09.10.2026, eigene Gewerke, Belege sortieren und filtern)';
+const APP_VERSION='8 (09.10.2026, Material in Beleg-Beschreibung)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -575,6 +578,24 @@ function pdfjs(){if(!pdfjsP)pdfjsP=loadPdfLib('./').catch(()=>loadPdfLib('https:
 /* ---------- Belegerkennung (Gesamtbetrag, Datum, Lieferant) ---------- */
 /* Belegerkennung: Gesamtbetrag, Datum, Lieferant aus Text (PDF-Text oder OCR) */
 const KNOWN_SUPPLIERS=['Bauhaus','Elektrobedarf Troller','Troller','Hornbach','Jumbo','OBI','Coop Bau+Hobby','Bau+Hobby','Landi','Balteschwiler','Kuratle','Gasser','Immer AG','Hilti','Würth','Wuerth','Debrunner','Sanitas Troesch','Richner','Brico','Toom','Migros','Do it','Elektro Material','EM Elektro','Otto Fischer','Winterhalter','Sika','Volg'];
+/* Materialpositionen aus dem Belegtext → kurze Beschreibung (max. 100 Zeichen) */
+const DESC_MAX=100;
+function receiptItems(text){
+  const lines=String(text||'').replace(/\r/g,'').split('\n').map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean);
+  const SKIP=/(total|summe|mwst|mehrwert|\bust\b|steuer|\bbar\b|karte|twint|visa|master|maestro|postfinance|r[uü]ckgeld|retour|gegeben|wechselgeld|rabatt|skonto|rundung|datum|uhrzeit|\btel\b|telefon|\bfax\b|www\.|http|@|iban|\buid\b|che-|rechnung|quittung|kassenbon|\bkasse\b|filiale|\bbon\b|beleg|danke|vielen|[oö]ffnungs|zahlung|bezahlt|betrag|netto|brutto|saldo|[uü]bertrag|anzahl|transaktion|terminal|\btrx\b|\bauth|kunde|punkte|cumulus|supercard|lieferschein|seite|porto|versand|zwischen|gutschein|pfand|depot|exkl|inkl|chf\s*$)/i;
+  const UNIT=/^(stk|st|st[uü]ck|stck|pce|pcs|pc|m|m2|m²|m3|m³|lfm|lm|kg|g|l|lt|pkt|pak|pack|rolle|rol|paar|sack|eimer|kart|krt|chf|fr|sfr|x|×|a|b|c|\*|=|-|\/)$/i;
+  const out=[],seen=new Set();
+  for(const l of lines){if(SKIP.test(l))continue;
+    if(!/\d+[.,]\d{2}\s*[A-Z]?\s*$/.test(l)&&!/\b\d+[.,]\d{2}\b.*\b\d+[.,]\d{2}\b/.test(l))continue; // Positionszeile = endet mit Preis
+    const name=l.split(' ').filter(t=>{const c=t.replace(/[(),;:]/g,'');if(!c)return false;if(UNIT.test(c))return false;
+      if(/^[-+]?[\d.,'’%*\/]+$/.test(c)||/^\d+[x×]$/i.test(c))return false;if((c.match(/\d/g)||[]).length>=5&&(c.match(/[a-zäöü]/gi)||[]).length<2)return false;return true}).join(' ')
+      .replace(/^[-–*•.\s]+|[-–*•:.,\s]+$/g,'').trim();
+    if((name.match(/[a-zäöüéè]/gi)||[]).length<3)continue;
+    const nm=name.length>45?name.slice(0,44).replace(/\s+\S*$/,'')+'…':name,k=nm.toLowerCase();if(seen.has(k))continue;seen.add(k);out.push(nm)}
+  return out}
+function itemsDesc(items){let s='';for(const it of items){const n=s?s+', '+it:it;if(n.length>DESC_MAX){if(!s)s=it.slice(0,DESC_MAX-1)+'…';else if(s.length<=DESC_MAX-2)s+=' …';break}s=n}return s}
+const fileBase=b=>{const f=blobMap.get(b.fileId);return f&&f.name?f.name.replace(/\.[^.]+$/,''):''};
+const descIsDefault=b=>!b.desc||(b.auto&&b.auto.desc)||b.desc===fileBase(b);
 function parseReceipt(text){
   const raw=String(text||'').replace(/\r/g,'');
   const lines=raw.split('\n').map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean);
@@ -629,6 +650,7 @@ async function recognizeBeleg(b,quiet){
   if(r.amount!=null&&(b.amount===''||b.amount==null||b.auto.amount)){b.amount=Math.round(r.amount*100)/100;b.auto.amount=true;got.push('CHF '+chf(b.amount))}
   if(r.date&&(b.dateAuto||b.auto.date)){b.date=r.date;b.dateAuto=false;b.auto.date=true;got.push(fmtDate(r.date))}
   if(r.supplier&&(!b.supplier||b.auto.supplier)){b.supplier=r.supplier;b.auto.supplier=true;got.push(r.supplier)}
+  if(descIsDefault(b)){const d=itemsDesc(receiptItems(text));if(d){b.desc=d;b.auto.desc=true;got.push('Material')}}
   await dbPut('belege',b);
   toast(got.length?`B-${pad(b.nr)} erkannt: ${got.join(' · ')} – bitte kurz kontrollieren (gelb markiert)`:`B-${pad(b.nr)}: kein Betrag gefunden – bitte von Hand eintragen`,got.length?6000:5000);
   return got.length>0}
@@ -880,6 +902,7 @@ function renderBelege(){
     <select data-ch="fy"><option value="">Alle Jahre</option>${years.map(y=>`<option ${UI.fy===y?'selected':''}>${y}</option>`).join('')}</select>
     <input type="search" placeholder="Suchen … (Enter)" value="${esc(UI.q)}" data-ch="q">
     <label class="b dupf ${UI.fd?'on':''}" ${dm.size||UI.fd?'':'hidden'}><input type="checkbox" data-ch="fd" ${UI.fd?'checked':''} hidden>⚠ Doppelte: <span id="dupn">${dm.size}</span></label>
+    ${S.belege.some(b=>descIsDefault(b)&&!(b.auto&&b.auto.desc)&&blobMap.get(b.fileId)&&blobMap.get(b.fileId).blob)?`<button class="b" data-act="descAll" title="Liest bei allen Belegen ohne Beschreibung das Material aus">✨ Material auslesen (${S.belege.filter(b=>descIsDefault(b)&&!(b.auto&&b.auto.desc)&&blobMap.get(b.fileId)&&blobMap.get(b.fileId).blob).length})</button>`:''}
     ${bfActive()?'<button class="b" data-act="bfReset">✕ Filter zurücksetzen</button>':''}
     <span class="sp"></span><span class="sum">${list.length} Beleg(e) · Total CHF <b>${chf(sum)}</b></span></div>
     <div class="drop" id="drop">Fotos oder PDFs von Belegen hierher ziehen – oder oben «+ Fotos / PDFs»</div>
@@ -893,7 +916,7 @@ function renderBelege(){
     ${list.map(b=>{const pins=S.pins.filter(p=>pinBelegIds(p).includes(b.id));
       return `<tr data-id="${b.id}" class="${UI.hl===b.id?'hl':''}${dm.has(b.id)?' dup':''}"><td><div class="bth" data-act="openBeleg" data-id="${b.id}" title="Beleg öffnen">${b.previewId?`<img src="${urlOf(b.previewId)}" alt="">`:''}${isPdfBeleg(b)?'<span class="tag">PDF</span>':''}</div></td>
       <td class="mut" style="white-space:nowrap">B-${pad(b.nr)}<div class="dupc">${dupHtml(b,dm)}</div></td><td><input type="date" data-bf="date" class="${b.auto&&b.auto.date?'auto':''}" value="${esc(b.date)}"></td>
-      <td><input data-bf="supplier" class="${b.auto&&b.auto.supplier?'auto':''}" value="${esc(b.supplier)}" placeholder="Lieferant"></td><td><input data-bf="desc" value="${esc(b.desc)}"></td>
+      <td><input data-bf="supplier" class="${b.auto&&b.auto.supplier?'auto':''}" value="${esc(b.supplier)}" placeholder="Lieferant"></td><td><textarea data-bf="desc" class="bdesc ${b.auto&&b.auto.desc?'auto':''}" rows="3" maxlength="${DESC_MAX}" title="${esc(b.desc)}" placeholder="Material / Beschreibung">${esc(b.desc)}</textarea></td>
       <td><select data-bf="category">${CATS.map(c=>`<option ${b.category===c?'selected':''}>${c}</option>`).join('')}</select></td>
       <td><select data-bf="gewerk"><option value="">–</option>${GEWERKE.map(g=>`<option ${b.gewerk===g?'selected':''}>${g}</option>`).join('')}</select></td>
       <td><input class="r ${b.auto&&b.auto.amount?'auto':''}" data-bf="amount" inputmode="decimal" value="${b.amount===''||b.amount==null?'':chf(b.amount)}" placeholder="0.00"></td>
@@ -1093,6 +1116,10 @@ const ACT={
   notDup:async id=>{const b=belegById(id),dm=dupMap(),l=dm.get(id)||[];if(!b||!l.length)return;
     if(!confirm(`B-${pad(b.nr)} ist kein Duplikat von ${l.map(x=>'B-'+pad(x.b.nr)).join(', ')}?\n\nDie Meldung wird für dieses Paar ausgeblendet.`))return;
     b.notDup=[...new Set([...(b.notDup||[]),...l.map(x=>x.b.id)])];await dbPut('belege',b);updDupMarks();if(UI.fd)renderBelege()},
+  descAll:async()=>{const L=S.belege.filter(b=>descIsDefault(b)&&!(b.auto&&b.auto.desc)&&blobMap.get(b.fileId)&&blobMap.get(b.fileId).blob);if(!L.length)return;
+    if(!confirm(`Bei ${L.length} Beleg(en) das Material aus dem Beleg auslesen und als Beschreibung eintragen?\n\nFotos brauchen je ca. 5–20 Sekunden. Bereits von Hand geschriebene Beschreibungen bleiben unverändert.`))return;
+    let n=0,ok=0;for(const b of L){n++;toast(`Material auslesen: ${n} von ${L.length} …`,60000);if(await recognizeBeleg(b,true)&&b.auto&&b.auto.desc)ok++;if(UI.tab==='belege')renderBelege()}
+    toast(`✓ Fertig: bei ${ok} von ${L.length} Belegen Material eingetragen – gelb markiert, bitte kurz kontrollieren`,7000)},
   gwAdd:async()=>{const i=$('#gwNew'),n=(i.value||'').trim();if(!n)return i.focus();const l=gwList().map(x=>({...x}));
     if(l.some(x=>x.n.toLowerCase()===n.toLowerCase())){toast('Dieses Gewerk gibt es schon',3000);return}
     l.push({n,c:gwPalette.find(c=>!l.some(x=>x.c===c))||'#6b7280'});await saveGwList(l);renderExport();toast(`Gewerk «${n}» angelegt`)},
@@ -1152,6 +1179,7 @@ document.addEventListener('change',async e=>{const t=e.target,d=t.dataset;
   if(d.bf){const b=belegById(t.closest('tr').dataset.id);if(!b)return;if(b.auto&&b.auto[d.bf]){b.auto[d.bf]=false;t.classList.remove('auto')}if(d.bf==='date')b.dateAuto=false;
     if(d.bf==='amount'){b.amount=parseAmount(t.value);t.value=b.amount===''?'':chf(b.amount)}
     else if(d.bf==='gewerk'){const old=b.gewerk||'';b.gewerk=t.value;for(const p of S.pins){let ch=false;for(const e of p.entries)if(e.belegIds.includes(b.id)&&(e.belegGw[b.id]||'')===old){e.belegGw[b.id]=b.gewerk;ch=true}if(ch)await dbPut('pins',p)}}
+    else if(d.bf==='desc'){b.desc=t.value.slice(0,DESC_MAX);t.title=b.desc}
     else b[d.bf]=t.value;
     await dbPut('belege',b);const list=filteredBelege();const s=document.querySelector('.sum');if(s)s.innerHTML=`${list.length} Beleg(e) · Total CHF <b>${chf(list.reduce((x,y)=>x+(+y.amount||0),0))}</b>`;
     if(d.bf==='amount'||d.bf==='date'||d.bf==='supplier'){const had=t.closest('tr').classList.contains('dup');updDupMarks();const now=dupMap().get(b.id);
