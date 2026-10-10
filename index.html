@@ -180,6 +180,7 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .ent.c span{color:var(--mut);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .ent.o{padding:12px;border-color:var(--acc);box-shadow:0 0 0 2px var(--acc2);margin-bottom:12px}
 .ehd{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.ehd .ename{flex:1;min-width:0;font-weight:700;font-size:14px;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:#fff}
 .ehd input{flex:1;padding:8px 9px;border:1px solid var(--line);border-radius:7px;font-size:14px}
 .entbar{display:flex;align-items:center;justify-content:space-between;margin:4px 0 8px}
 .mats table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:6px}
@@ -424,7 +425,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='9 (10.10.2026, Pin-Positionen sperrbar)';
+const APP_VERSION='10 (10.10.2026, Einträge benennbar)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -517,9 +518,13 @@ function normPin(p){if(!p)return p;
   if(!Array.isArray(p.entries))p.entries=[{id:p.id+'-e1',date:p.date||today(),note:p.note||'',photoIds:p.photoIds||[],belegIds:p.belegIds||[],belegGw:p.belegGw||{},gwText:p.gwText||{},material:p.material||'',mats:[],by:p.by||''}];
   for(const k of ['date','note','photoIds','belegIds','belegGw','gwText','material'])delete p[k];
   for(const e of p.entries){e.photoIds=e.photoIds||[];e.belegIds=e.belegIds||[];e.belegGw=e.belegGw||{};e.gwText=e.gwText||{};e.mats=e.mats||[];e.tags=e.tags||[];for(const m of e.mats)if(!m.gw)m.gw='Holzbau'}
-  if(!p.entries.length)p.entries.push(newEntry());return p}
+  if(!p.entries.length)p.entries.push(Object.assign(newEntry(),{name:ENT_DEF[0]}));return p}
 const entriesOf=p=>[...p.entries];
 const entNo=(p,e)=>p.entries.indexOf(e)+1;
+/* Eintragsnamen: Standard 1 = Bilder, 2 = Materialkosten, danach frei; jederzeit änderbar */
+const ENT_DEF=['Bilder','Materialkosten'];
+const entLabel=(p,e)=>(e.name||'').trim()||`Eintrag ${entNo(p,e)}`;
+const entNames=()=>[...new Set([...ENT_DEF,...S.pins.flatMap(p=>p.entries.map(e=>(e.name||'').trim()))].filter(Boolean))];
 const lastEntry=p=>entriesOf(p).slice(-1)[0];
 const pinPhotos=p=>p.entries.flatMap(e=>e.photoIds);
 const pinBelegIds=p=>[...new Set(p.entries.flatMap(e=>e.belegIds))];
@@ -556,7 +561,7 @@ async function delBlobIfUnused(id){if(!id)return;
   const used=S.pins.some(p=>p.entries.some(e=>e.photoIds.includes(id)))||S.belege.some(b=>b.fileId===id||b.previewId===id)||S.floors.some(f=>f.planId===id);
   if(used)return;await dbDel('blobs',id);const i=S.blobs.findIndex(b=>b.id===id);if(i>=0)S.blobs.splice(i,1);blobMap.delete(id);
   if(urls.has(id)){URL.revokeObjectURL(urls.get(id));urls.delete(id)}}
-function whereUsed(id){for(const p of S.pins){const e=p.entries.find(e=>e.photoIds.includes(id));if(e)return `${floorLabel(floorById(p.floorId))}, Pin ${p.nr}, Eintrag ${entNo(p,e)}`}
+function whereUsed(id){for(const p of S.pins){const e=p.entries.find(e=>e.photoIds.includes(id));if(e)return `${floorLabel(floorById(p.floorId))}, Pin ${p.nr}, ${esc(entLabel(p,e))}`}
   const b=S.belege.find(b=>b.fileId===id);if(b)return `Beleg B-${pad(b.nr)}`;return ''}
 
 /* ---------- Bilder, PDFs, Hash ---------- */
@@ -716,7 +721,7 @@ function renderPinPanel(){
     el.innerHTML=`${bl}${rl}<div class="hd">Einträge ${esc(floorLabel(cf))}</div>${pins.length?gr.map(g=>(gr.length>1||g.room?`<div class="rgh"><span>${g.room?'▭ '+esc(g.room.name):'Ohne Zimmer'}</span><span>${g.pins.length}</span></div>`:'')+g.pins.map(pli).join('')).join(''):'<p class="mut">Noch keine Pins. Klicke oben auf «📍 Pin setzen» und dann auf die Stelle im Grundriss.</p>'}`;
     return}
   const e=curEntry(p);
-  const entHtml=entriesOf(p).map(x=>e&&x.id===e.id?entryEditor(p,x):`<div class="ent c" data-act="selEntry" data-id="${x.id}"><b>Eintrag ${entNo(p,x)}</b><span>${esc((x.note||'').split('\n')[0]||'–')}</span><small class="mut">${[x.photoIds.length?'📷'+x.photoIds.length:'',x.belegIds.length?'🧾'+x.belegIds.length:'',x.mats.length?'🪵 CHF '+chf(matTotal(x.mats)):''].filter(Boolean).join(' ')}${entTags(x).length?'<br>'+gwDots(entTags(x)):''}</small>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="-1" title="Nach oben" ${entNo(p,x)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="1" title="Nach unten" ${entNo(p,x)===p.entries.length?'disabled':''}>▼</button></span>`:''}</div>`).join('');
+  const entHtml=entriesOf(p).map(x=>e&&x.id===e.id?entryEditor(p,x):`<div class="ent c" data-act="selEntry" data-id="${x.id}"><b>${esc(entLabel(p,x))}</b><span>${esc((x.note||'').split('\n')[0]||'–')}</span><small class="mut">${[x.photoIds.length?'📷'+x.photoIds.length:'',x.belegIds.length?'🧾'+x.belegIds.length:'',x.mats.length?'🪵 CHF '+chf(matTotal(x.mats)):''].filter(Boolean).join(' ')}${entTags(x).length?'<br>'+gwDots(entTags(x)):''}</small>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="-1" title="Nach oben" ${entNo(p,x)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="1" title="Nach unten" ${entNo(p,x)===p.entries.length?'disabled':''}>▼</button></span>`:''}</div>`).join('');
   el.innerHTML=`<div class="hd"><button class="b sm" data-act="closePin">‹ Alle Pins</button><span class="pnr">${p.nr}</span></div>
   <label>Titel / Raum<input data-f="title" value="${esc(p.title)}" placeholder="z.B. Bad OG – Wandanschluss"></label>
   ${roomsOf(floorById(p.floorId)).length?`<p class="proom">▭ Zimmer: ${roomOfPin(p)?esc(roomOfPin(p).name):'<span class="mut" style="font-weight:400">ausserhalb der Zimmerflächen</span>'}</p>`:''}
@@ -752,7 +757,7 @@ function entryEditor(p,e){
       <textarea data-gwt="${g}" rows="2" placeholder="Notiz ${g} …">${esc(t)}</textarea>
       <div class="chips">${bl.map(chip).join('')}</div>${sel(g)}</div></details>`};
   const other=entBelegeGw(e,'');
-  return `<div class="ent o"><div class="ehd"><b style="flex:1">Eintrag ${entNo(p,e)}</b>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="-1" title="Nach oben" ${entNo(p,e)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="1" title="Nach unten" ${entNo(p,e)===p.entries.length?'disabled':''}>▼</button></span>`:''}<button class="b sm d" data-act="delEntry" title="Eintrag löschen">Eintrag löschen</button></div>
+  return `<div class="ent o"><div class="ehd"><input class="ename" data-ef="name" list="entNames" value="${esc(e.name||'')}" placeholder="${esc(entLabel(p,e))}" title="Name des Eintrags – z.B. Bilder, Materialkosten"><datalist id="entNames">${entNames().map(n=>`<option value="${esc(n)}">`).join('')}</datalist>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="-1" title="Nach oben" ${entNo(p,e)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="1" title="Nach unten" ${entNo(p,e)===p.entries.length?'disabled':''}>▼</button></span>`:''}<button class="b sm d" data-act="delEntry" title="Eintrag löschen">Eintrag löschen</button></div>
   <p class="autosave">💾 Alles wird automatisch gespeichert.</p>
   <div class="lbl">Gewerke (antippen)</div>
   <div class="tags">${GEWERKE.map(g=>`<button class="tagb ${(e.tags||[]).includes(g)?'on':''}" style="--c:${GWC[g]}" data-act="togTag" data-id="${g}">${g}</button>`).join('')}</div>
@@ -974,7 +979,7 @@ function renderFotos(){
   $('#v-fotos').innerHTML=`<div class="fbar"><button class="tagb ${!UI.pf?'on':''}" style="--c:#1f2328" data-act="pfSet" data-id="">Alle</button>${GEWERKE.map(g=>`<button class="tagb ${UI.pf===g?'on':''}" style="--c:${GWC[g]}" data-act="pfSet" data-id="${g}">${g}</button>`).join('')}
     <select data-ch="pfl"><option value="">Alle Pläne</option>${orderedFloors().map(f=>`<option value="${f.id}" ${UI.pfl===f.id?'selected':''}>${esc(floorLabel(f))}</option>`).join('')}</select>
     <span class="sp"></span><span class="mut">${items.length} Foto(s)</span></div>
-    ${items.length?`<div class="fgrid">${items.map(x=>`<div class="fc"><img src="${urlOf(x.id)}" alt="" data-act="zoomImg" data-id="${x.id}" loading="lazy"><div class="fcap"><b>${esc(floorLabel(x.f))}${roomOfPin(x.p)?' · '+esc(roomOfPin(x.p).name):''} · ${x.p.nr} ${esc(x.p.title||'')}</b><span class="mut">Eintrag ${entNo(x.p,x.e)}${x.e.note?' · '+esc(x.e.note.split('\n')[0]):''}</span><div>${gwDots(x.tg)}</div><a data-act="gotoEntry" data-id="${x.p.id}" data-e="${x.e.id}">Zum Eintrag ›</a></div></div>`).join('')}</div>`
+    ${items.length?`<div class="fgrid">${items.map(x=>`<div class="fc"><img src="${urlOf(x.id)}" alt="" data-act="zoomImg" data-id="${x.id}" loading="lazy"><div class="fcap"><b>${esc(floorLabel(x.f))}${roomOfPin(x.p)?' · '+esc(roomOfPin(x.p).name):''} · ${x.p.nr} ${esc(x.p.title||'')}</b><span class="mut">${esc(entLabel(x.p,x.e))}${x.e.note?' · '+esc(x.e.note.split('\n')[0]):''}</span><div>${gwDots(x.tg)}</div><a data-act="gotoEntry" data-id="${x.p.id}" data-e="${x.e.id}">Zum Eintrag ›</a></div></div>`).join('')}</div>`
       :`<p class="mut c" style="margin-top:40px">${UI.pf?'Keine Fotos mit Gewerk «'+UI.pf+'». Gewerke markierst du im Eintrag mit den farbigen Knöpfen.':'Noch keine Fotos erfasst.'}</p>`}`}
 function showImg(id){const lb=$('#lb');lb.querySelector('img').src=urlOf(id);lb.hidden=false}
 
@@ -1077,10 +1082,10 @@ const ACT={
   gotoEntry:(id,a)=>{const p=pinById(id);if(!p)return;UI.tab='plan';UI.floor=p.floorId;UI.pin=id;UI.entry=a.dataset.e||null;UI.zoom=ZOOM0;render()},
   doneEntry:async()=>{const p=pinById(UI.pin);if(!p)return;clearTimeout(saveTimers[p.id]);delete saveTimers[p.id];await dbPut('pins',p);UI.entry='none';renderPlan();
     toast(cloudOn()&&SES?'✓ Eintrag gespeichert – wird synchronisiert':'✓ Eintrag gespeichert')},
-  newEntry:async()=>{const p=pinById(UI.pin);if(!p)return;const e=newEntry();p.entries.push(e);UI.entry=e.id;await dbPut('pins',p);renderPlan();const t=document.querySelector('[data-ef="note"]');if(t)t.focus()},
+  newEntry:async()=>{const p=pinById(UI.pin);if(!p)return;const e=newEntry();e.name=ENT_DEF[p.entries.length]||'';p.entries.push(e);UI.entry=e.id;await dbPut('pins',p);renderPlan();const t=document.querySelector('[data-ef="note"]');if(t)t.focus()},
   delEntry:async()=>{const p=pinById(UI.pin),e=curEntry(p);if(!e)return;
     if(p.entries.length===1)return ACT.delPin();
-    if(!confirm(`Eintrag ${entNo(p,e)} mit ${e.photoIds.length} Foto(s) löschen?`))return;
+    if(!confirm(`${esc(entLabel(p,e))} mit ${e.photoIds.length} Foto(s) löschen?`))return;
     p.entries=p.entries.filter(x=>x.id!==e.id);UI.entry=null;await dbPut('pins',p);for(const id of e.photoIds)await delBlobIfUnused(id);renderPlan()},
   addMat:async(code,a)=>{const k=KATMAP.get(code),p=pinById(UI.pin),e=curEntry(p);if(!k||!e)return;const g=(a&&a.dataset.gw)||'Holzbau';
     e.mats.push({gw:g,code:k[0],name:k[1],unit:k[2],price:k[3],qty:'',src:'Regiepreisliste'});UI.gwOpen.add(g);await dbPut('pins',p);renderPinPanel();focusLastQty()},
@@ -1148,7 +1153,7 @@ const CH={
   floorBld:async v=>{const f=curFloor();if(!f)return;f.buildingId=v||null;await dbPut('floors',f);renderPlan()},
   renameFloor:async v=>{const f=curFloor();if(!v.trim())return renderStage();f.name=v.trim();await dbPut('floors',f);renderFloorList()},
   link:async(v,t)=>{if(!v)return;const g=t.dataset.gw||'';UI.gwOpen.add(g);const p=pinById(UI.pin);await linkBeleg(p,curEntry(p),v,g);renderPlan()},
-  linkPin:async(v,t)=>{if(!v)return;const b=belegById(t.closest('tr').dataset.id),p=pinById(v);if(!b||!p)return;const e=lastEntry(p);await linkBeleg(p,e,b.id,b.gewerk||'');renderBelege();toast(`Beleg dem letzten Eintrag (Nr. ${entNo(p,e)}) von Pin ${p.nr} zugeordnet`)},
+  linkPin:async(v,t)=>{if(!v)return;const b=belegById(t.closest('tr').dataset.id),p=pinById(v);if(!b||!p)return;const e=lastEntry(p);await linkBeleg(p,e,b.id,b.gewerk||'');renderBelege();toast(`Beleg dem letzten Eintrag «${entLabel(p,e)}» von Pin ${p.nr} zugeordnet`)},
   wy:v=>{UI.wy=v;renderArbeit()},
   fd:(v,t)=>{UI.fd=t.checked;renderBelege()},
   fy:v=>{UI.fy=v;renderBelege()},q:v=>{UI.q=v;renderBelege()},
@@ -1277,7 +1282,7 @@ async function doPrint(){
       const bSum=pb.reduce((x,b)=>x+shareOf(b,p.id),0),mSum=matTotal(es.flatMap(e=>e.mats));rb+=bSum;rm+=mSum;
       h+=`<section class="pinsec"><h2 class="pinh"><span class="enr" style="display:inline-flex;margin-right:2mm;vertical-align:middle">${p.nr}</span>${esc(p.title||'Ohne Titel')} <span style="font-weight:400;color:#666;font-size:11pt">· ${esc(floorLabel(f))}${grp.room?' · '+esc(grp.room.name):''}</span></h2>
       <h3 class="ph">Fortschritte</h3>
-      ${es.map(e=>`<div class="ent-p"><div class="edt">Eintrag ${entNo(p,e)}${entTags(e).length?` <span style="font-weight:400;color:#555">· ${entTags(e).join(', ')}</span>`:''}</div>
+      ${es.map(e=>`<div class="ent-p"><div class="edt">${esc(entLabel(p,e))}${entTags(e).length?` <span style="font-weight:400;color:#555">· ${entTags(e).join(', ')}</span>`:''}</div>
         ${e.note?`<p>${nl2br(e.note)}</p>`:''}${e.material?`<p><i>Material:</i> ${nl2br(e.material)}</p>`:''}
         ${GEWERKE.map(g=>{const t=e.gwText[g]||'',ms=matsOf(e,g).map(x=>x[0]);if(!t&&!ms.length)return '';return `${t?`<p><b>${g}:</b> ${nl2br(t)}</p>`:`<p><b>${g}-Material:</b></p>`}${ms.length?matTable(ms):''}`}).join('')}
         ${e.photoIds.length?`<div class="eph">${e.photoIds.map(id=>`<img src="${urlOf(id)}" alt="">`).join('')}</div>`:''}</div>`).join('')||'<p style="color:#666">Keine Einträge.</p>'}
@@ -1458,7 +1463,7 @@ async function logout(){const q=await queueCount();
   SYNCMETA=kv.find(x=>x.id==='sync')||{id:'sync',lastPull:null,initialized:false};
   S.floors=f;S.buildings=bd;S.articles=ar;S.work=wk;S.pins=p;S.belege=b;S.blobs=bl;bl.forEach(x=>blobMap.set(x.id,x));
   S.pins.forEach(normPin);loadGw();
-  for(const x of S.pins)if(renameGw(x))await dbPut('pins',x);for(const x of S.belege)if(renameGw(x))await dbPut('belege',x);
+  for(const x of S.pins){let ch=renameGw(x);x.entries.forEach((e,i)=>{if(e.name===undefined){e.name=ENT_DEF[i]||'';ch=true}});if(ch)await dbPut('pins',x)}for(const x of S.belege)if(renameGw(x))await dbPut('belege',x);
   UI.floor=firstFloorId();
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
   if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js?app='+APP.id).catch(e=>console.warn(e));
