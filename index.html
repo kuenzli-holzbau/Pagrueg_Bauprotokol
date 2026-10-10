@@ -2,7 +2,7 @@
 <html lang="de-CH">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Baustellenprotokoll 2</title>
 <meta name="theme-color" content="#0f766e">
 <meta name="mobile-web-app-capable" content="yes">
@@ -171,6 +171,7 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1f2328;color:#fff;padding:10px 18px;border-radius:8px;z-index:200;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.3)}
 
 .plan{touch-action:none}
+.stage{touch-action:none;overscroll-behavior:contain;-webkit-user-select:none;user-select:none}
 .tw{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:10px}
 .tw table.bt{min-width:1120px}
 .ent{border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:#fff}
@@ -456,7 +457,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='16 (10.10.2026, Abzüge Fenster/Türen, Boden/Decke L × B)';
+const APP_VERSION='17 (10.10.2026, Navigation im Grundriss auf dem Tablet)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -1297,7 +1298,7 @@ window.addEventListener('beforeunload',()=>{for(const id in saveTimers){clearTim
 
 /* Pins setzen und verschieben */
 $('#stage').addEventListener('pointerdown',e=>{
-  const plan=e.target.closest('.plan');if(!plan||e.button>0)return;
+  const onPlan=e.target.closest('.plan'),plan=$('#stage .plan');if(!plan||e.button>0)return;
   const pinEl=e.target.closest('.pin');
   if(pinEl){e.preventDefault();const p=pinById(pinEl.dataset.pin);if(!p)return;const r=plan.getBoundingClientRect();const sx=e.clientX,sy=e.clientY;let moved=false;
     try{pinEl.setPointerCapture(e.pointerId)}catch(_){}
@@ -1309,11 +1310,14 @@ $('#stage').addEventListener('pointerdown',e=>{
     const up=async()=>{pinEl.removeEventListener('pointermove',mv);pinEl.removeEventListener('pointerup',up);pinEl.removeEventListener('pointercancel',up);
       if(moved)await dbPut('pins',p);if(!moved&&(UI.pin!==p.id||UI.entry==='none'))UI.entry=null;UI.pin=p.id;renderStage();renderPinPanel()};
     pinEl.addEventListener('pointermove',mv);pinEl.addEventListener('pointerup',up);pinEl.addEventListener('pointercancel',up);return}
-  /* Plan: 1 Finger = verschieben bzw. Pin setzen (Tippen), 2 Finger = zoomen */
-  e.preventDefault();ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  try{plan.setPointerCapture(e.pointerId)}catch(_){}
-  if(ptrs.size===2){tap=null;const [a,b]=[...ptrs.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y)||1,z:UI.zoom}}
-  else if(ptrs.size===1){tap={id:e.pointerId,x:e.clientX,y:e.clientY};pinch=null}
+  /* Plan: 1 Finger = verschieben (nie zoomen) bzw. Pin setzen (Tippen), 2 Finger = zoomen */
+  e.preventDefault();
+  if(e.isPrimary||e.pointerType==='mouse'){ptrs.clear();pinch=null}  // neue Geste: liegengebliebene Finger verwerfen
+  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  try{$('#stage').setPointerCapture(e.pointerId)}catch(_){}
+  if(ptrs.size===2){tap=null;const [a,b]=[...ptrs.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y)||1,z:UI.zoom,mx:(a.x+b.x)/2,my:(a.y+b.y)/2,on:false}}
+  else if(ptrs.size===1){tap={id:e.pointerId,x:e.clientX,y:e.clientY,onPlan:!!onPlan};pinch=null}
+  else{tap=null}
 });
 const ptrs=new Map();let tap=null,pinch=null;
 function applyZoom(z,cx,cy){
@@ -1328,17 +1332,22 @@ function applyZoom(z,cx,cy){
 $('#stage').addEventListener('pointermove',e=>{
   const last=ptrs.get(e.pointerId);if(!last)return;
   const st=$('#stage');const dx=e.clientX-last.x,dy=e.clientY-last.y;ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  if(pinch&&ptrs.size>=2){const [a,b]=[...ptrs.values()];const d=Math.hypot(a.x-b.x,a.y-b.y);applyZoom(pinch.z*d/pinch.d,(a.x+b.x)/2,(a.y+b.y)/2);return}
-  if(tap&&Math.hypot(e.clientX-tap.x,e.clientY-tap.y)>8)tap=null;
-  if(!tap&&ptrs.size===1){st.scrollLeft-=dx;st.scrollTop-=dy}
+  if(ptrs.size>=2){if(!pinch)return;const [a,b]=[...ptrs.values()];const d=Math.hypot(a.x-b.x,a.y-b.y),mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+    st.scrollLeft-=mx-pinch.mx;st.scrollTop-=my-pinch.my;pinch.mx=mx;pinch.my=my;           // 2 Finger verschieben
+    if(!pinch.on&&Math.abs(d-pinch.d)>24){pinch.on=true;pinch.d=d;pinch.z=UI.zoom}            // erst ab deutlicher Spreizung zoomen
+    if(pinch.on)applyZoom(pinch.z*d/pinch.d,mx,my);return}
+  if(tap&&Math.hypot(e.clientX-tap.x,e.clientY-tap.y)>10)tap=null;
+  if(!tap&&ptrs.size===1&&!pinch){st.scrollLeft-=dx;st.scrollTop-=dy}
 });
-function ptrEnd(e){if(!ptrs.has(e.pointerId))return;ptrs.delete(e.pointerId);if(ptrs.size<2)pinch=null;
-  if(e.type==='pointerup'&&tap&&tap.id===e.pointerId){const plan=$('#stage .plan');if(plan){const r=plan.getBoundingClientRect();const x=clamp((e.clientX-r.left)/r.width),y=clamp((e.clientY-r.top)/r.height),f=curFloor();
+function ptrEnd(e){if(!ptrs.has(e.pointerId))return;ptrs.delete(e.pointerId);if(ptrs.size<2&&pinch){pinch=null;tap=null}
+  if(e.type==='pointerup'&&tap&&tap.id===e.pointerId&&tap.onPlan){const plan=$('#stage .plan');if(plan){const r=plan.getBoundingClientRect();const x=clamp((e.clientX-r.left)/r.width),y=clamp((e.clientY-r.top)/r.height),f=curFloor();
     if(UI.draw&&(UI.draw.kind==='room'?!isSite(f):isSite(f))){UI.draw.pts.push([x,y]);renderStage()}
     else if(UI.add)addPinAt(x,y);
     else if(isSite(f)){const b=bldsSorted().find(b=>b.area&&b.area.length>2&&inPoly(x,y,b.area));if(b)ACT.openBld(b.id)}}}
   if(ptrs.size===0)tap=null}
 $('#stage').addEventListener('pointerup',ptrEnd);$('#stage').addEventListener('pointercancel',ptrEnd);
+$('#stage').addEventListener('lostpointercapture',e=>{if(ptrs.has(e.pointerId)){ptrs.delete(e.pointerId);if(ptrs.size<2)pinch=null}});
+window.addEventListener('pointerup',ptrEnd);window.addEventListener('pointercancel',ptrEnd);
 $('#stage').addEventListener('wheel',e=>{if(!e.ctrlKey||!$('#stage .plan'))return;e.preventDefault();applyZoom(UI.zoom*Math.exp(-e.deltaY/150),e.clientX,e.clientY)},{passive:false});
 
 /* ---------- PDF-Export ---------- */
