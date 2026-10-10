@@ -252,6 +252,11 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .gwr .gwu{font-size:11px;color:var(--mut);white-space:nowrap;min-width:0}
 .gwr .b:disabled{opacity:.35}
 .b.lk{background:#1f2328;color:#fff;border-color:#1f2328}
+.dimb{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:4px 0 10px;background:#f6fbf9}
+.dimr{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px}
+.dimr input{width:76px;padding:7px 6px;border:1px solid var(--line);border-radius:6px;text-align:center;font-size:15px;background:#fff}
+.dimr .lt{margin-left:auto;font-weight:700;font-size:15px;white-space:nowrap}
+.dimb small{display:block;margin-top:4px;font-size:11px}
 .autosave{font-size:11px;color:var(--mut);margin:-4px 0 8px}
 .efoot{display:flex;justify-content:flex-end;margin-top:12px}
 .mtot{text-align:right;font-weight:700;margin:2px 0 8px;font-size:13px}
@@ -440,7 +445,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='12 (10.10.2026, PDF: Geschoss ohne Pins, Zimmerausschnitt mit Pins)';
+const APP_VERSION='13 (10.10.2026, Fläche B × H im Material-Eintrag)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -553,6 +558,13 @@ const entHas=e=>!!(e.photoIds.length||(e.note||'').trim()||e.belegIds.length||e.
 function pinState(p){const n=e=>(e.name||'').toLowerCase(),b=p.entries.some(e=>/bild/.test(n(e))&&entHas(e)),m=p.entries.some(e=>/material/.test(n(e))&&entHas(e));return b&&m?'s2':b||m?'s1':'s0'}
 const PIN_STATE_TXT={s0:'noch nichts erfasst',s1:'Bilder erfasst',s2:'Bilder und Material erfasst'};
 const pinLegend=()=>`<div class="pleg"><span><i class="pin s0"></i>keine Einträge</span><span><i class="pin s1"></i>Bilder</span><span><i class="pin s2"></i>Bilder + Material</span></div>`;
+/* Fläche im Material-Eintrag: Breite × Höhe → m², wird bei Material mit Einheit m² als Menge übernommen */
+const isMatEntry=e=>/material/i.test(e.name||'');
+const isM2=u=>/^\s*m\s*(2|²)\s*$/i.test(u||'');
+const parseDim=v=>{const n=parseAmount(String(v||'').replace(/m$/i,''));if(n===''||n<=0)return '';return n>=100?Math.round(n)/1000:n}; // ab 100 = mm
+const entM2=e=>e.dimW&&e.dimH?Math.round(e.dimW*e.dimH*100)/100:'';
+const dimTxt=e=>entM2(e)?`${qfmt(e.dimW)} × ${qfmt(e.dimH)} m = ${qfmt(entM2(e))} m²`:'';
+function pushMat(e,m){if(isM2(m.unit)&&entM2(e)){m.qty=entM2(e);m.qtyAuto=true}e.mats.push(m)}
 const entNames=()=>[...new Set([...ENT_DEF,...S.pins.flatMap(p=>p.entries.map(e=>(e.name||'').trim()))].filter(Boolean))];
 const lastEntry=p=>entriesOf(p).slice(-1)[0];
 const pinPhotos=p=>p.entries.flatMap(e=>e.photoIds);
@@ -750,7 +762,7 @@ function renderPinPanel(){
     el.innerHTML=`${bl}${rl}<div class="hd">Einträge ${esc(floorLabel(cf))}</div>${pins.length?gr.map(g=>(gr.length>1||g.room?`<div class="rgh"><span>${g.room?'▭ '+esc(g.room.name):'Ohne Zimmer'}</span><span>${g.pins.length}</span></div>`:'')+g.pins.map(pli).join('')).join(''):'<p class="mut">Noch keine Pins. Klicke oben auf «📍 Pin setzen» und dann auf die Stelle im Grundriss.</p>'}`;
     return}
   const e=curEntry(p);
-  const entHtml=entriesOf(p).map(x=>e&&x.id===e.id?entryEditor(p,x):`<div class="ent c" data-act="selEntry" data-id="${x.id}"><b>${esc(entLabel(p,x))}</b><span>${esc((x.note||'').split('\n')[0]||'–')}</span><small class="mut">${[x.photoIds.length?'📷'+x.photoIds.length:'',x.belegIds.length?'🧾'+x.belegIds.length:'',x.mats.length?'🪵 CHF '+chf(matTotal(x.mats)):''].filter(Boolean).join(' ')}${entTags(x).length?'<br>'+gwDots(entTags(x)):''}</small>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="-1" title="Nach oben" ${entNo(p,x)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="1" title="Nach unten" ${entNo(p,x)===p.entries.length?'disabled':''}>▼</button></span>`:''}</div>`).join('');
+  const entHtml=entriesOf(p).map(x=>e&&x.id===e.id?entryEditor(p,x):`<div class="ent c" data-act="selEntry" data-id="${x.id}"><b>${esc(entLabel(p,x))}</b><span>${esc((x.note||'').split('\n')[0]||'–')}</span><small class="mut">${[x.photoIds.length?'📷'+x.photoIds.length:'',x.belegIds.length?'🧾'+x.belegIds.length:'',entM2(x)?'📐 '+qfmt(entM2(x))+' m²':'',x.mats.length?'🪵 CHF '+chf(matTotal(x.mats)):''].filter(Boolean).join(' ')}${entTags(x).length?'<br>'+gwDots(entTags(x)):''}</small>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="-1" title="Nach oben" ${entNo(p,x)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="1" title="Nach unten" ${entNo(p,x)===p.entries.length?'disabled':''}>▼</button></span>`:''}</div>`).join('');
   el.innerHTML=`<div class="hd"><button class="b sm" data-act="closePin">‹ Alle Pins</button><span class="pnr">${p.nr}</span></div>
   <label>Titel / Raum<input data-f="title" value="${esc(p.title)}" placeholder="z.B. Bad OG – Wandanschluss"></label>
   ${roomsOf(floorById(p.floorId)).length?`<p class="proom">▭ Zimmer: ${roomOfPin(p)?esc(roomOfPin(p).name):'<span class="mut" style="font-weight:400">ausserhalb der Zimmerflächen</span>'}</p>`:''}
@@ -788,6 +800,8 @@ function entryEditor(p,e){
   const other=entBelegeGw(e,'');
   return `<div class="ent o"><div class="ehd"><input class="ename" data-ef="name" list="entNames" value="${esc(e.name||'')}" placeholder="${esc(entLabel(p,e))}" title="Name des Eintrags – z.B. Bilder, Materialkosten"><datalist id="entNames">${entNames().map(n=>`<option value="${esc(n)}">`).join('')}</datalist>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="-1" title="Nach oben" ${entNo(p,e)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="1" title="Nach unten" ${entNo(p,e)===p.entries.length?'disabled':''}>▼</button></span>`:''}<button class="b sm d" data-act="delEntry" title="Eintrag löschen">Eintrag löschen</button></div>
   <p class="autosave">💾 Alles wird automatisch gespeichert.</p>
+  ${isMatEntry(e)?`<div class="dimb"><div class="lbl" style="margin:0 0 4px">📐 Fläche</div><div class="dimr">Breite <input data-dim="dimW" inputmode="decimal" value="${e.dimW?qfmt(e.dimW):''}" placeholder="m"> × Höhe <input data-dim="dimH" inputmode="decimal" value="${e.dimH?qfmt(e.dimH):''}" placeholder="m"> <span class="lt">${entM2(e)?'= '+qfmt(entM2(e))+' m²':'= – m²'}</span></div>
+    <small class="mut">In Meter (z.B. 2.5) oder Millimeter (z.B. 2500). Material mit Einheit m² übernimmt diese Fläche automatisch als Menge.</small></div>`:''}
   <div class="lbl">Gewerke (antippen)</div>
   <div class="tags">${GEWERKE.map(g=>`<button class="tagb ${(e.tags||[]).includes(g)?'on':''}" style="--c:${GWC[g]}" data-act="togTag" data-id="${g}">${g}</button>`).join('')}</div>
   <label>Bemerkungen / Fortschritt<textarea data-ef="note" rows="4" placeholder="Was wurde gemacht, Stand, Besonderheiten …">${esc(e.note)}</textarea></label>
@@ -1117,16 +1131,16 @@ const ACT={
     if(!confirm(`${esc(entLabel(p,e))} mit ${e.photoIds.length} Foto(s) löschen?`))return;
     p.entries=p.entries.filter(x=>x.id!==e.id);UI.entry=null;await dbPut('pins',p);for(const id of e.photoIds)await delBlobIfUnused(id);renderPlan()},
   addMat:async(code,a)=>{const k=KATMAP.get(code),p=pinById(UI.pin),e=curEntry(p);if(!k||!e)return;const g=(a&&a.dataset.gw)||'Holzbau';
-    e.mats.push({gw:g,code:k[0],name:k[1],unit:k[2],price:k[3],qty:'',src:'Regiepreisliste'});UI.gwOpen.add(g);await dbPut('pins',p);renderPinPanel();focusLastQty()},
+    pushMat(e,{gw:g,code:k[0],name:k[1],unit:k[2],price:k[3],qty:'',src:'Regiepreisliste'});UI.gwOpen.add(g);await dbPut('pins',p);renderPinPanel();focusLastQty()},
   addArt:async(id,a)=>{const x=S.articles.find(z=>z.id===id),p=pinById(UI.pin),e=curEntry(p);if(!x||!e)return;const g=(a&&a.dataset.gw)||x.gw;
-    e.mats.push({gw:g,code:x.code||'',name:x.name,unit:x.unit,price:x.price,qty:'',src:x.supplier||'',url:x.url||'',artId:x.id});UI.gwOpen.add(g);await dbPut('pins',p);renderPinPanel();focusLastQty()},
+    pushMat(e,{gw:g,code:x.code||'',name:x.name,unit:x.unit,price:x.price,qty:'',src:x.supplier||'',url:x.url||'',artId:x.id});UI.gwOpen.add(g);await dbPut('pins',p);renderPinPanel();focusLastQty()},
   newArt:(id,a)=>{const g=a.dataset.gw;const q=a.closest('.mats').querySelector('[data-katq]');UI.naName=q?q.value.trim():'';UI.newArt=g;UI.gwOpen.add(g);renderPinPanel();const f=$('#na-url');if(f)f.focus()},
   naCancel:()=>{UI.newArt=null;renderPinPanel()},
   naSave:async(id,a)=>{const g=a.dataset.gw,p=pinById(UI.pin),e=curEntry(p);if(!e)return;const v=x=>($('#na-'+x)||{}).value||'';
     const name=v('name').trim();if(!name){toast('Bitte eine Bezeichnung eingeben.');$('#na-name').focus();return}
     const price=parseAmount(v('price')),unit=v('unit').trim()||'St',code=v('code').trim(),url=v('url').trim(),sup=supplierOf(g)==='Regiepreisliste'?'':supplierOf(g);
     let artId='';if($('#na-keep')&&$('#na-keep').checked){const art={id:uid(),gw:g,name,code,unit,price:price===''?null:price,supplier:sup,url};S.articles.push(art);await dbPut('articles',art);artId=art.id}
-    e.mats.push({gw:g,code,name,unit,price:price===''?null:price,qty:'',src:sup,url,artId});UI.newArt=null;UI.naName='';await dbPut('pins',p);renderPinPanel();focusLastQty()},
+    pushMat(e,{gw:g,code,name,unit,price:price===''?null:price,qty:'',src:sup,url,artId});UI.newArt=null;UI.naName='';await dbPut('pins',p);renderPinPanel();focusLastQty()},
   shopSearch:(id,a)=>{const g=a.dataset.gw,sup=supplierOf(g),site=SHOPSITE[sup];const q=a.closest('.mats').querySelector('[data-katq]');const t=(q&&q.value.trim())||'';
     window.open(SHOPURL[sup]||('https://'+site),'_blank');
     if(t){try{navigator.clipboard.writeText(t)}catch(_){}}
@@ -1195,8 +1209,12 @@ document.addEventListener('change',async e=>{const t=e.target,d=t.dataset;
   if(d.up){const files=[...t.files];t.value='';if(files.length)await UP[d.up](files);return}
   if(d.bfl!==undefined&&t.tagName==='SELECT'){UI.bfl[d.bfl]=t.value;renderBelege();return}
   if(d.ch&&CH[d.ch]){CH[d.ch](t.value,t);return}
+  if(d.dim){const p=pinById(UI.pin),e=curEntry(p);if(!e)return;const v=parseDim(t.value);e[d.dim]=v;const m2=entM2(e);let n=0;
+    if(m2)for(const m of e.mats)if(isM2(m.unit)&&(m.qtyAuto||m.qty===''||m.qty==null)){m.qty=m2;m.qtyAuto=true;n++}
+    clearTimeout(saveTimers[p.id]);delete saveTimers[p.id];await dbPut('pins',p);renderPinPanel();if(n)toast(`${qfmt(m2)} m² bei ${n} Material-Position(en) übernommen`,3000);
+    const nx=document.querySelector(d.dim==='dimW'?'[data-dim="dimH"]':'[data-katq]');if(nx&&d.dim==='dimW'&&!e.dimH)nx.focus();return}
   if(d.mq!==undefined||d.mp!==undefined){const p=pinById(UI.pin),e=curEntry(p);if(!e)return;const m=e.mats[+(d.mq??d.mp)];if(!m)return;
-    if(d.mq!==undefined)m.qty=parseAmount(t.value);else m.price=parseAmount(t.value)===''?null:parseAmount(t.value);await dbPut('pins',p);renderPinPanel();return}
+    if(d.mq!==undefined){m.qty=parseAmount(t.value);m.qtyAuto=false}else m.price=parseAmount(t.value)===''?null:parseAmount(t.value);await dbPut('pins',p);renderPinPanel();return}
   if(d.wf){const tr=t.closest('tr'),w=S.work.find(x=>x.id===tr.dataset.id);if(!w)return;
     if(d.wf==='von'||d.wf==='bis'){const v=parseTime(t.value);if(v===null){toast('Zeit bitte ohne Doppelpunkt eingeben, z.B. 0730 oder 1700',4000);t.value=w[d.wf]||'';return}w[d.wf]=v;t.value=v}
     else if(d.wf==='pause'){w.pause=parseInt(String(t.value).replace(/\D/g,''),10)||'';t.value=w.pause}
@@ -1313,7 +1331,7 @@ async function doPrint(){
       h+=`<section class="pinsec"><h2 class="pinh"><span class="enr" style="display:inline-flex;margin-right:2mm;vertical-align:middle">${p.nr}</span>${esc(p.title||'Ohne Titel')} <span style="font-weight:400;color:#666;font-size:11pt">· ${esc(floorLabel(f))}${grp.room?' · '+esc(grp.room.name):''}</span></h2>
       <h3 class="ph">Fortschritte</h3>
       ${es.map(e=>`<div class="ent-p"><div class="edt">${esc(entLabel(p,e))}${entTags(e).length?` <span style="font-weight:400;color:#555">· ${entTags(e).join(', ')}</span>`:''}</div>
-        ${e.note?`<p>${nl2br(e.note)}</p>`:''}${e.material?`<p><i>Material:</i> ${nl2br(e.material)}</p>`:''}
+        ${dimTxt(e)?`<p><i>Fläche:</i> ${dimTxt(e)}</p>`:''}${e.note?`<p>${nl2br(e.note)}</p>`:''}${e.material?`<p><i>Material:</i> ${nl2br(e.material)}</p>`:''}
         ${GEWERKE.map(g=>{const t=e.gwText[g]||'',ms=matsOf(e,g).map(x=>x[0]);if(!t&&!ms.length)return '';return `${t?`<p><b>${g}:</b> ${nl2br(t)}</p>`:`<p><b>${g}-Material:</b></p>`}${ms.length?matTable(ms):''}`}).join('')}
         ${e.photoIds.length?`<div class="eph">${e.photoIds.map(id=>`<img src="${urlOf(id)}" alt="">`).join('')}</div>`:''}</div>`).join('')||'<p style="color:#666">Keine Einträge.</p>'}
       <div class="pbel"><h3 class="ph">Belege</h3>
