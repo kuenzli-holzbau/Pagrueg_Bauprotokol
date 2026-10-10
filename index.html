@@ -258,6 +258,15 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .dimr .lt{margin-left:auto;font-weight:700;font-size:15px;white-space:nowrap}
 .dimb small{display:block;margin-top:4px;font-size:11px}
 .dimf{text-align:right;font-size:13px;color:#0f766e;margin-top:2px}
+.opl{display:flex;flex-direction:column;gap:5px;margin-top:6px}
+.opr{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:13px;background:#fff;border:1px solid var(--line);border-radius:7px;padding:5px 6px}
+.opr select{width:auto!important;max-width:78px;min-width:0!important;flex:none;padding:4px 2px;border:1px solid var(--line);border-radius:6px;background:#fff;font-size:12px}
+.opr input{width:50px;padding:6px 3px;border:1px solid var(--line);border-radius:6px;text-align:center;font-size:14px}
+.opr input.opn{width:30px}
+.opr .lt{margin-left:auto;font-weight:600;color:#b45309;white-space:nowrap}
+.opr button{border:0;background:transparent;color:var(--mut);font-size:18px;cursor:pointer;padding:0 2px}
+.opb{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
+.opb .net{margin-left:auto;font-weight:700;font-size:15px;color:#0f766e}
 .mlr .mf{font-size:11px;color:#0f766e;white-space:nowrap}
 .autosave{font-size:11px;color:var(--mut);margin:-4px 0 8px}
 .efoot{display:flex;justify-content:flex-end;margin-top:12px}
@@ -447,7 +456,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='15 (10.10.2026, Faktor «2x» pro Material)';
+const APP_VERSION='16 (10.10.2026, Abzüge Fenster/Türen, Boden/Decke L × B)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -564,8 +573,17 @@ const pinLegend=()=>`<div class="pleg"><span><i class="pin s0"></i>keine Einträ
 const isMatEntry=e=>/material/i.test(e.name||'');
 const isM2=u=>/^\s*m\s*(2|²)\s*$/i.test(u||'');
 const parseDim=v=>{const n=parseAmount(String(v||'').replace(/m$/i,''));if(n===''||n<=0)return '';return n>=100?Math.round(n)/1000:n}; // ab 100 = mm
-const entM2=e=>e.dimW&&e.dimH?Math.round(e.dimW*e.dimH*100)/100:'';
-const dimTxt=e=>entM2(e)?`${qfmt(e.dimW)} × ${qfmt(e.dimH)} m = ${qfmt(entM2(e))} m²`:'';
+/* Fläche brutto (B×H bzw. L×B) minus Abzüge (Fenster, Türen, Aussparungen) = netto */
+const r2=n=>Math.round(n*100)/100;
+const isFlat=p=>/boden|decke/i.test((p&&p.title)||'');
+const dimLbl=p=>isFlat(p)?['Länge','Breite']:['Breite','Höhe'];
+const openM2=o=>o.w&&o.h?r2(o.w*o.h*(+o.n||1)):0;
+const grossM2=e=>e.dimW&&e.dimH?r2(e.dimW*e.dimH):'';
+const abzM2=e=>r2((e.open||[]).reduce((s,o)=>s+openM2(o),0));
+const entM2=e=>grossM2(e)?Math.max(0,r2(grossM2(e)-abzM2(e))):'';
+const OPEN_T=['Fenster','Tür','Aussparung'];
+const dimTxt=e=>{if(!grossM2(e))return '';const os=(e.open||[]).filter(openM2);
+  return `${qfmt(e.dimW)} × ${qfmt(e.dimH)} m = ${qfmt(grossM2(e))} m²`+(os.length?' − '+os.map(o=>`${+o.n>1?o.n+'× ':''}${esc(o.t||'Abzug')} ${qfmt(o.w)} × ${qfmt(o.h)}`).join(' − ')+` = <b>${qfmt(entM2(e))} m²</b>`:'')};
 /* Faktor aus Text: «2x gestrichen», «3 × lasiert» → 2 bzw. 3 (nicht bei Massen wie 4x40) */
 const txtFactor=t=>{const m=String(t||'').match(/(?:^|[^\d.,])(\d{1,2})\s*[x×](?![\d])/i);const n=m?+m[1]:0;return n>=2&&n<=20?n:0};
 const matFactor=(e,m)=>txtFactor(m.note)||1; // Faktor nur aus der Beschreibung der jeweiligen Material-Position
@@ -805,10 +823,15 @@ function entryEditor(p,e){
       <textarea data-gwt="${g}" rows="2" placeholder="Notiz ${g} …">${esc(t)}</textarea>
       <div class="chips">${bl.map(chip).join('')}</div>${sel(g)}</div></details>`};
   const other=entBelegeGw(e,'');
-  return `<div class="ent o"><div class="ehd"><input class="ename" data-ef="name" list="entNames" value="${esc(e.name||'')}" placeholder="${esc(entLabel(p,e))}" title="Name des Eintrags – z.B. Bilder, Materialkosten"><datalist id="entNames">${entNames().map(n=>`<option value="${esc(n)}">`).join('')}</datalist>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="-1" title="Nach oben" ${entNo(p,e)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="1" title="Nach unten" ${entNo(p,e)===p.entries.length?'disabled':''}>▼</button></span>`:''}<button class="b sm d" data-act="delEntry" title="Eintrag löschen">Eintrag löschen</button></div>
+  return `<div class="ent o"><div class="ehd"><input class="ename" data-ef="name" list="entNames" value="${esc(e.name||'')}" placeholder="${esc(entLabel(p,e))}" title="Name des Eintrags – z.B. Bilder, Materialkosten"><datalist id="entNames">${entNames().map(n=>`<option value="${esc(n)}">`).join('')}</datalist>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="-1" title="Nach oben" ${entNo(p,e)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="1" title="Nach unten" ${entNo(p,e)===p.entries.length?'disabled':''}>▼</button></span>`:''}<button class="b sm d" data-act="delEntry" title="Eintrag löschen">🗑</button></div>
   <p class="autosave">💾 Alles wird automatisch gespeichert.</p>
-  ${isMatEntry(e)?`<div class="dimb"><div class="lbl" style="margin:0 0 4px">📐 Fläche</div><div class="dimr">Breite <input data-dim="dimW" inputmode="decimal" value="${e.dimW?qfmt(e.dimW):''}" placeholder="m"> × Höhe <input data-dim="dimH" inputmode="decimal" value="${e.dimH?qfmt(e.dimH):''}" placeholder="m"> <span class="lt">${entM2(e)?'= '+qfmt(entM2(e))+' m²':'= – m²'}</span></div>
-    <small class="mut">In Meter (z.B. 2.5) oder Millimeter (z.B. 2500). Material mit Einheit m² übernimmt diese Fläche automatisch als Menge. Steht in der Beschreibung eines Materials z.B. «2x gestrichen», wird die Fläche nur bei diesem Material verdoppelt.</small></div>`:''}
+  ${isMatEntry(e)?`<div class="dimb"><div class="lbl" style="margin:0 0 4px">📐 Fläche${isFlat(p)?' (Boden/Decke)':''}</div><div class="dimr">${dimLbl(p)[0]} <input data-dim="dimW" inputmode="decimal" value="${e.dimW?qfmt(e.dimW):''}" placeholder="m"> × ${dimLbl(p)[1]} <input data-dim="dimH" inputmode="decimal" value="${e.dimH?qfmt(e.dimH):''}" placeholder="m"> <span class="lt">${grossM2(e)?'= '+qfmt(grossM2(e))+' m²':'= – m²'}</span></div>
+    ${(e.open||[]).length?`<div class="opl">${e.open.map((o,i)=>`<div class="opr"><select data-op="t" data-oi="${i}">${OPEN_T.map(t=>`<option ${o.t===t?'selected':''}>${t}</option>`).join('')}</select>
+      <input data-op="n" data-oi="${i}" inputmode="numeric" value="${o.n||1}" title="Anzahl" class="opn">× <input data-op="w" data-oi="${i}" inputmode="decimal" value="${o.w?qfmt(o.w):''}" placeholder="B"> × <input data-op="h" data-oi="${i}" inputmode="decimal" value="${o.h?qfmt(o.h):''}" placeholder="H">
+      <span class="lt">${openM2(o)?'− '+qfmt(openM2(o))+' m²':''}</span><button data-act="rmOpen" data-id="${i}" title="Abzug entfernen">×</button></div>`).join('')}</div>`:''}
+    <div class="opb"><button class="b sm" data-act="addOpen" data-id="${isFlat(p)?'Aussparung':'Fenster'}">− ${isFlat(p)?'Aussparung':'Fenster'}</button>${isFlat(p)?'':'<button class="b sm" data-act="addOpen" data-id="Tür">− Tür</button>'}
+      ${grossM2(e)&&abzM2(e)?`<span class="lt net">Netto ${qfmt(entM2(e))} m²</span>`:''}</div>
+    <small class="mut">In Meter (z.B. 2.5) oder Millimeter (z.B. 2500). Fenster, Türen und Aussparungen werden abgezogen. Material mit Einheit m² übernimmt diese Fläche automatisch als Menge. Steht in der Beschreibung eines Materials z.B. «2x gestrichen», wird die Fläche nur bei diesem Material verdoppelt.</small></div>`:''}
   <div class="lbl">Gewerke (antippen)</div>
   <div class="tags">${GEWERKE.map(g=>`<button class="tagb ${(e.tags||[]).includes(g)?'on':''}" style="--c:${GWC[g]}" data-act="togTag" data-id="${g}">${g}</button>`).join('')}</div>
   <label>Bemerkungen / Fortschritt<textarea data-ef="note" rows="4" placeholder="Was wurde gemacht, Stand, Besonderheiten …">${esc(e.note)}</textarea></label>
@@ -1125,6 +1148,9 @@ const ACT={
   selEntry:id=>{UI.entry=id;renderPinPanel()},
   moveEntry:async(id,a)=>{const p=pinById(UI.pin);if(!p)return;const i=p.entries.findIndex(x=>x.id===id),j=i+(+a.dataset.dir);if(i<0||j<0||j>=p.entries.length)return;
     [p.entries[i],p.entries[j]]=[p.entries[j],p.entries[i]];clearTimeout(saveTimers[p.id]);delete saveTimers[p.id];await dbPut('pins',p);renderPinPanel()},
+  addOpen:async t=>{const p=pinById(UI.pin),e=curEntry(p);if(!e)return;e.open=e.open||[];e.open.push({t,n:1,w:'',h:''});await dbPut('pins',p);renderPinPanel();
+    const l=document.querySelectorAll('[data-op="w"]');if(l.length)l[l.length-1].focus()},
+  rmOpen:async i=>{const p=pinById(UI.pin),e=curEntry(p);if(!e||!e.open)return;e.open.splice(+i,1);const n=recalcM2(e);await dbPut('pins',p);renderPinPanel();if(n)toast(`Netto ${qfmt(entM2(e))} m² bei ${n} Material-Position(en) übernommen`,3000)},
   togLock:async()=>{S.project.pinLock=!S.project.pinLock;await dbPut('kv',S.project);renderPlan();toast(S.project.pinLock?'🔒 Pin-Positionen gesperrt – Pins können nicht mehr verschoben werden':'🔓 Pins können wieder verschoben werden',3500)},
   togLbl:()=>{SHOWLBL=!SHOWLBL;try{localStorage.setItem(APP.id+'_lbl',SHOWLBL?'1':'0')}catch(_){}renderStage()},
   togTag:async g=>{const p=pinById(UI.pin),e=curEntry(p);if(!e)return;e.tags=e.tags||[];e.tags=e.tags.includes(g)?e.tags.filter(x=>x!==g):[...e.tags,g];await dbPut('pins',p);renderPinPanel();renderStage()},
@@ -1218,6 +1244,11 @@ document.addEventListener('change',async e=>{const t=e.target,d=t.dataset;
   if(d.ch&&CH[d.ch]){CH[d.ch](t.value,t);return}
   if(d.mn!==undefined&&UI.pin){const p=pinById(UI.pin),e=curEntry(p);if(e&&entM2(e)){const n=recalcM2(e);if(n){clearTimeout(saveTimers[p.id]);delete saveTimers[p.id];await dbPut('pins',p);renderPinPanel();
       toast(`Menge angepasst: ${qfmt(entM2(e))} m² × ${matFactor(e,e.mats[+d.mn])}`,3000)}}return}
+  if(d.op){const p=pinById(UI.pin),e=curEntry(p);if(!e||!e.open)return;const o=e.open[+d.oi];if(!o)return;
+    if(d.op==='t')o.t=t.value;else if(d.op==='n')o.n=Math.max(1,parseInt(t.value,10)||1);else o[d.op]=parseDim(t.value);
+    const n=recalcM2(e);clearTimeout(saveTimers[p.id]);delete saveTimers[p.id];await dbPut('pins',p);renderPinPanel();
+    if(n)toast(`Netto ${qfmt(entM2(e))} m² bei ${n} Material-Position(en) übernommen`,3000);
+    if(d.op==='w'){const nx=document.querySelector(`[data-op="h"][data-oi="${d.oi}"]`);if(nx&&!o.h)nx.focus()}return}
   if(d.dim){const p=pinById(UI.pin),e=curEntry(p);if(!e)return;const v=parseDim(t.value);e[d.dim]=v;const m2=entM2(e),n=recalcM2(e);
     clearTimeout(saveTimers[p.id]);delete saveTimers[p.id];await dbPut('pins',p);renderPinPanel();if(n)toast(`${qfmt(m2)} m² bei ${n} Material-Position(en) übernommen`,3000);
     const nx=document.querySelector(d.dim==='dimW'?'[data-dim="dimH"]':'[data-katq]');if(nx&&d.dim==='dimW'&&!e.dimH)nx.focus();return}
