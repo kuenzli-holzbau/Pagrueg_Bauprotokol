@@ -46,7 +46,7 @@ textarea{resize:vertical}
 .fl.on{background:var(--acc2);color:var(--acc);font-weight:600}
 .fl small{background:#e6e2da;color:#555;border-radius:10px;padding:0 7px;font-size:11px}
 .floors .b{margin-top:8px;width:100%;justify-content:center}
-.stagewrap{display:flex;flex-direction:column;min-width:0;min-height:0}
+.stagewrap{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
 .toolbar{display:flex;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);background:#fff;flex-wrap:wrap;min-height:50px}
 .toolbar .fname{font-weight:700;font-size:15px;border:1px solid transparent;border-radius:6px;padding:4px 6px;width:170px;background:transparent}
 .toolbar .fname:hover,.toolbar .fname:focus{border-color:var(--line);outline:none}
@@ -217,6 +217,13 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .plbl{position:absolute;left:calc(100% + 4px);top:50%;transform:translateY(-50%);background:rgba(255,255,255,.92);color:#1f2328;border:1px solid rgba(0,0,0,.15);border-radius:4px;padding:1px 5px;font:600 11px/1.3 -apple-system,Helvetica,Arial,sans-serif;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-shadow:0 1px 2px rgba(0,0,0,.15)}
 .pin.on .plbl{transform:translateY(-50%) scale(.77);transform-origin:left center}
 .pin.hit{background:var(--c);transform:scale(1.15)}
+.pin.s1:not(.on):not(.hit),.pli b.s1{background:linear-gradient(to top,#16a34a 50%,var(--acc) 50%)}
+.pin.s2:not(.on):not(.hit),.pli b.s2{background:#16a34a}
+.pleg{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:#555;margin-top:8px}
+.pleg span{display:inline-flex;align-items:center;gap:5px}
+.pleg .pin{position:static;display:inline-block;width:14px;height:14px;margin:0;border-width:1.5px;box-shadow:none;vertical-align:middle}
+.stleg{position:absolute;left:10px;bottom:10px;z-index:5;background:rgba(255,255,255,.92);border-radius:8px;padding:5px 10px;box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.stleg .pleg{margin:0}
 .gfsel{font-weight:600}
 #v-fotos{padding:14px 18px;max-width:1400px;margin:0 auto}
 #v-arbeit{padding:16px 20px;max-width:1100px;margin:0 auto}
@@ -381,6 +388,7 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
   <section class="stagewrap">
     <div class="toolbar" id="planBar"></div>
     <div class="stage" id="stage"></div>
+    <div class="stleg"><div class="pleg"><span><i class="pin s0"></i>keine Einträge</span><span><i class="pin s1"></i>Bilder</span><span><i class="pin s2"></i>Bilder + Material</span></div></div>
   </section>
   <aside class="side" id="pinPanel"></aside>
 </main>
@@ -425,7 +433,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='10 (10.10.2026, Einträge benennbar)';
+const APP_VERSION='11 (10.10.2026, Pinfarbe zeigt Stand)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -524,6 +532,11 @@ const entNo=(p,e)=>p.entries.indexOf(e)+1;
 /* Eintragsnamen: Standard 1 = Bilder, 2 = Materialkosten, danach frei; jederzeit änderbar */
 const ENT_DEF=['Bilder','Materialkosten'];
 const entLabel=(p,e)=>(e.name||'').trim()||`Eintrag ${entNo(p,e)}`;
+/* Pin-Stand: s0 = rot (nichts erfasst), s1 = halb grün (Bilder), s2 = ganz grün (Bilder + Material) */
+const entHas=e=>!!(e.photoIds.length||(e.note||'').trim()||e.belegIds.length||e.mats.length||(e.work||[]).length||Object.values(e.gwText||{}).some(v=>(v||'').trim()));
+function pinState(p){const n=e=>(e.name||'').toLowerCase(),b=p.entries.some(e=>/bild/.test(n(e))&&entHas(e)),m=p.entries.some(e=>/material/.test(n(e))&&entHas(e));return b&&m?'s2':b||m?'s1':'s0'}
+const PIN_STATE_TXT={s0:'noch nichts erfasst',s1:'Bilder erfasst',s2:'Bilder und Material erfasst'};
+const pinLegend=()=>`<div class="pleg"><span><i class="pin s0"></i>keine Einträge</span><span><i class="pin s1"></i>Bilder</span><span><i class="pin s2"></i>Bilder + Material</span></div>`;
 const entNames=()=>[...new Set([...ENT_DEF,...S.pins.flatMap(p=>p.entries.map(e=>(e.name||'').trim()))].filter(Boolean))];
 const lastEntry=p=>entriesOf(p).slice(-1)[0];
 const pinPhotos=p=>p.entries.flatMap(e=>e.photoIds);
@@ -707,7 +720,7 @@ function renderStage(){
   if(!f.planId){st.innerHTML=`<div class="empty"><p>Für «${esc(f.name)}» ist noch kein Plan hinterlegt.</p><button class="b p" data-act="planUp">Plan hochladen (Bild oder PDF)</button></div>`;return}
   const dpts=isRoom&&UI.draw.pts.length===2?rectPts(UI.draw.pts):UI.draw?UI.draw.pts:[];
   const dr=drawing&&UI.draw.pts.length?`<svg class="areas" viewBox="0 0 1000 1000" preserveAspectRatio="none"><polygon class="dr" points="${ptsStr(dpts)}"/></svg>${UI.draw.pts.map(([x,y])=>`<span class="dot" style="left:${x*100}%;top:${y*100}%"></span>`).join('')}`:'';
-  st.innerHTML=`<div class="plan ${UI.add||drawing?'adding':''}" style="width:${UI.zoom*100}%"><img src="${urlOf(f.planId)}" alt="Plan" draggable="false">${areasHtml(f)}${dr}${pinsOf(f.id).map(p=>{const hit=UI.gf&&pinGewerke(p).includes(UI.gf);return `<div class="pin ${p.id===UI.pin?'on':''} ${UI.gf?(hit?'hit':'dim'):''}" data-pin="${p.id}" style="left:${p.x*100}%;top:${p.y*100}%;${hit?'--c:'+GWC[UI.gf]:''}" title="${esc(p.title)}">${p.nr}${pinLbl(p)}</div>`}).join('')}</div>`;
+  st.innerHTML=`<div class="plan ${UI.add||drawing?'adding':''}" style="width:${UI.zoom*100}%"><img src="${urlOf(f.planId)}" alt="Plan" draggable="false">${areasHtml(f)}${dr}${pinsOf(f.id).map(p=>{const hit=UI.gf&&pinGewerke(p).includes(UI.gf);return `<div class="pin ${pinState(p)} ${p.id===UI.pin?'on':''} ${UI.gf?(hit?'hit':'dim'):''}" data-pin="${p.id}" style="left:${p.x*100}%;top:${p.y*100}%;${hit?'--c:'+GWC[UI.gf]:''}" title="${esc(p.title)}${p.title?' – ':''}${PIN_STATE_TXT[pinState(p)]}">${p.nr}${pinLbl(p)}</div>`}).join('')}</div>`;
 }
 function renderPinPanel(){
   const el=$('#pinPanel'),p=pinById(UI.pin);
@@ -716,7 +729,7 @@ function renderPinPanel(){
     const pins=pinsOf(UI.floor),cf=curFloor();
     const bl=isSite(cf)?`<div class="hd">Gebäude</div>${bldsSorted().map(b=>`<div class="bld"><input data-bld="${b.id}" value="${esc(b.name)}" title="Umbenennen"><small>${floorsOfBld(b.id).length} Geschoss(e)${b.area?'':' · noch keine Fläche'}</small><div class="bact"><button class="b sm" data-act="openBld" data-id="${b.id}">Öffnen</button><button class="b sm" data-act="redraw" data-id="${b.id}">Fläche ${b.area?'neu ':''}zeichnen</button><button class="b sm d" data-act="delBld" data-id="${b.id}">Löschen</button></div></div>`).join('')||'<p class="mut">Noch keine Gebäude. Tippe oben auf «🏠 Gebäude markieren» und dann auf die Ecken des Hauses.</p>'}<div style="height:14px"></div>`:'';
     const rl=!isSite(cf)&&cf.planId?`<div class="hd">Zimmer</div>${roomsOf(cf).map(r=>`<div class="bld"><input data-room="${r.id}" value="${esc(r.name)}" title="Umbenennen"><small>${pins.filter(p=>roomOfPin(p)===r).length} Pin(s)</small><div class="bact"><button class="b sm" data-act="redrawRoom" data-id="${r.id}">Fläche neu zeichnen</button><button class="b sm d" data-act="delRoom" data-id="${r.id}">Löschen</button></div></div>`).join('')||'<p class="mut" style="font-size:13px">Noch keine Zimmer. Oben «▭ Zimmer zeichnen» – bei Rechtecken genügen 2 Ecken.</p>'}<div style="height:14px"></div>`:'';
-    const pli=x=>`<div class="pli" data-act="selPin" data-id="${x.id}"><b>${x.nr}</b><span>${esc(x.title||'(ohne Titel)')}<small>${x.entries.length} ${x.entries.length===1?'Eintrag':'Einträge'} · ${pinPhotos(x).length} Foto(s)${pinBelegIds(x).length?' · '+pinBelegIds(x).length+' Beleg(e)':''}${pinGewerke(x).length?'<br>'+gwDots(pinGewerke(x)):''}</small></span></div>`;
+    const pli=x=>`<div class="pli" data-act="selPin" data-id="${x.id}"><b class="${pinState(x)}" title="${PIN_STATE_TXT[pinState(x)]}">${x.nr}</b><span>${esc(x.title||'(ohne Titel)')}<small>${x.entries.length} ${x.entries.length===1?'Eintrag':'Einträge'} · ${pinPhotos(x).length} Foto(s)${pinBelegIds(x).length?' · '+pinBelegIds(x).length+' Beleg(e)':''}${pinGewerke(x).length?'<br>'+gwDots(pinGewerke(x)):''}</small></span></div>`;
     const gr=pinGroups(cf,pins);
     el.innerHTML=`${bl}${rl}<div class="hd">Einträge ${esc(floorLabel(cf))}</div>${pins.length?gr.map(g=>(gr.length>1||g.room?`<div class="rgh"><span>${g.room?'▭ '+esc(g.room.name):'Ohne Zimmer'}</span><span>${g.pins.length}</span></div>`:'')+g.pins.map(pli).join('')).join(''):'<p class="mut">Noch keine Pins. Klicke oben auf «📍 Pin setzen» und dann auf die Stelle im Grundriss.</p>'}`;
     return}
@@ -985,7 +998,7 @@ function showImg(id){const lb=$('#lb');lb.querySelector('img').src=urlOf(id);lb.
 
 /* ---------- Aktionen ---------- */
 async function addPinAt(x,y){const f=curFloor();const nr=Math.max(0,...pinsOf(f.id).map(p=>p.nr))+1;
-  const e=newEntry();const p={id:uid(),floorId:f.id,x,y,nr,title:'',by:SES?SES.email:'',entries:[e]};
+  const e=Object.assign(newEntry(),{name:ENT_DEF[0]});const p={id:uid(),floorId:f.id,x,y,nr,title:'',by:SES?SES.email:'',entries:[e]};
   S.pins.push(p);await dbPut('pins',p);UI.pin=p.id;UI.entry=e.id;UI.add=false;renderPlan();const t=document.querySelector('[data-f="title"]');if(t)t.focus()}
 async function uploadPlan(file){const f=curFloor();if(!f||!file)return;toast('Grundriss wird verarbeitet …',60000);
   try{let blob;
@@ -1274,7 +1287,7 @@ async function doPrint(){
   const G=o.gw,eOk=e=>!G||entTags(e).includes(G);
   for(const f of fl){const pins=pinsOf(f.id).filter(p=>p.entries.some(eOk));if(G&&!pins.length)continue;
     if(o.plans&&f.planId){const b=blobMap.get(f.planId)||{};const w=b.w||1,hh=b.h||1;const wmm=Math.min(184,240*w/hh);
-      h+=`<section class="pg"><h2>${esc(floorLabel(f))}${isSite(f)?'':' – Grundriss'}</h2><div class="pplan" style="width:${wmm.toFixed(1)}mm"><img src="${urlOf(f.planId)}" alt="">${areasHtml(f)}${pins.map(p=>`<span class="pin" style="left:${p.x*100}%;top:${p.y*100}%">${p.nr}${pinLbl(p)}</span>`).join('')}</div></section>`}
+      h+=`<section class="pg"><h2>${esc(floorLabel(f))}${isSite(f)?'':' – Grundriss'}</h2><div class="pplan" style="width:${wmm.toFixed(1)}mm"><img src="${urlOf(f.planId)}" alt="">${areasHtml(f)}${pins.map(p=>`<span class="pin ${pinState(p)}" style="left:${p.x*100}%;top:${p.y*100}%">${p.nr}${pinLbl(p)}</span>`).join('')}</div>${pinLegend()}</section>`}
     if(o.entries)for(const grp of pinGroups(f,pins)){if(!grp.pins.length)continue;const hasRooms=roomsOf(f).length>0;let rb=0,rm=0;
     if(hasRooms)h+=`<h2 class="roomh">${grp.room?'▭ '+esc(grp.room.name):'Ohne Zimmer'} <small>· ${esc(floorLabel(f))} · ${grp.pins.length} Pin(s)</small></h2>`;
     for(const p of grp.pins){const es=entriesOf(p).filter(eOk);
