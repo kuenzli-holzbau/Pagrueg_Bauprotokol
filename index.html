@@ -257,6 +257,8 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .dimr input{width:76px;padding:7px 6px;border:1px solid var(--line);border-radius:6px;text-align:center;font-size:15px;background:#fff}
 .dimr .lt{margin-left:auto;font-weight:700;font-size:15px;white-space:nowrap}
 .dimb small{display:block;margin-top:4px;font-size:11px}
+.dimf{text-align:right;font-size:13px;color:#0f766e;margin-top:2px}
+.mlr .mf{font-size:11px;color:#0f766e;white-space:nowrap}
 .autosave{font-size:11px;color:var(--mut);margin:-4px 0 8px}
 .efoot{display:flex;justify-content:flex-end;margin-top:12px}
 .mtot{text-align:right;font-weight:700;margin:2px 0 8px;font-size:13px}
@@ -445,7 +447,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='13 (10.10.2026, Fläche B × H im Material-Eintrag)';
+const APP_VERSION='15 (10.10.2026, Faktor «2x» pro Material)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -564,7 +566,12 @@ const isM2=u=>/^\s*m\s*(2|²)\s*$/i.test(u||'');
 const parseDim=v=>{const n=parseAmount(String(v||'').replace(/m$/i,''));if(n===''||n<=0)return '';return n>=100?Math.round(n)/1000:n}; // ab 100 = mm
 const entM2=e=>e.dimW&&e.dimH?Math.round(e.dimW*e.dimH*100)/100:'';
 const dimTxt=e=>entM2(e)?`${qfmt(e.dimW)} × ${qfmt(e.dimH)} m = ${qfmt(entM2(e))} m²`:'';
-function pushMat(e,m){if(isM2(m.unit)&&entM2(e)){m.qty=entM2(e);m.qtyAuto=true}e.mats.push(m)}
+/* Faktor aus Text: «2x gestrichen», «3 × lasiert» → 2 bzw. 3 (nicht bei Massen wie 4x40) */
+const txtFactor=t=>{const m=String(t||'').match(/(?:^|[^\d.,])(\d{1,2})\s*[x×](?![\d])/i);const n=m?+m[1]:0;return n>=2&&n<=20?n:0};
+const matFactor=(e,m)=>txtFactor(m.note)||1; // Faktor nur aus der Beschreibung der jeweiligen Material-Position
+const autoQty=(e,m)=>entM2(e)?Math.round(entM2(e)*matFactor(e,m)*100)/100:'';
+function recalcM2(e){if(!entM2(e))return 0;let n=0;for(const m of e.mats)if(isM2(m.unit)&&(m.qtyAuto||m.qty===''||m.qty==null)){const q=autoQty(e,m);if(m.qty!==q||!m.qtyAuto){m.qty=q;m.qtyAuto=true;n++}}return n}
+function pushMat(e,m){if(isM2(m.unit)&&entM2(e)){m.qty=autoQty(e,m);m.qtyAuto=true}e.mats.push(m)}
 const entNames=()=>[...new Set([...ENT_DEF,...S.pins.flatMap(p=>p.entries.map(e=>(e.name||'').trim()))].filter(Boolean))];
 const lastEntry=p=>entriesOf(p).slice(-1)[0];
 const pinPhotos=p=>p.entries.flatMap(e=>e.photoIds);
@@ -780,7 +787,7 @@ function entryEditor(p,e){
   const mats=g=>{const ls=matsOf(e,g),sup=supplierOf(g);return `<div class="mats"><div class="lbl" style="margin:2px 0 4px">Material${g==='Holzbau'?' aus Preisliste (netto)':' · Lieferant '+sup}</div>
     ${ls.map(([m,i])=>{const np=m.price==null||m.price==='';return `<div class="ml"><div class="mlh"><span>${esc(m.name)}</span><button data-act="rmMat" data-id="${i}" title="Material entfernen">×</button></div>
       <small>${[m.code?esc(m.code):'',m.src&&m.src!=='Regiepreisliste'?esc(m.src):'',np?'kein Preis':'CHF '+chf(m.price)+' / '+esc(m.unit)].filter(Boolean).join(' · ')}${m.url?` · <a class="lk" href="${esc(m.url)}" target="_blank" rel="noopener">🔗 Shop</a>`:''}</small>
-      <div class="mlr">Menge <input data-mq="${i}" inputmode="decimal" value="${qfmt(m.qty)}" placeholder="0"> ${esc(m.unit)}${np?` · Preis CHF <input data-mp="${i}" inputmode="decimal" placeholder="0.00">`:''}<span class="lt">CHF ${chf((+m.qty||0)*(+m.price||0))}</span></div>
+      <div class="mlr">Menge <input data-mq="${i}" inputmode="decimal" value="${qfmt(m.qty)}" placeholder="0"> ${esc(m.unit)}${m.qtyAuto&&isM2(m.unit)&&matFactor(e,m)>1?` <span class="mf">(${qfmt(entM2(e))} m² × ${matFactor(e,m)})</span>`:''}${np?` · Preis CHF <input data-mp="${i}" inputmode="decimal" placeholder="0.00">`:''}<span class="lt">CHF ${chf((+m.qty||0)*(+m.price||0))}</span></div>
       <input class="mnote" data-mn="${i}" value="${esc(m.note||'')}" placeholder="Beschreibung, z.B. ${g==='Elektro'?'Steckdose Küche':'Beplankung Wand Nord'}"></div>`}).join('')}
     ${ls.length?`<div class="mtot">Total ${g}: CHF ${chf(matTotal(ls.map(x=>x[0])))}</div>`:''}
     ${UI.newArt===g?`<div class="naf"><div class="lbl">Neuer Artikel · ${esc(sup==='Regiepreisliste'?'eigener Artikel':sup)}</div>
@@ -801,7 +808,7 @@ function entryEditor(p,e){
   return `<div class="ent o"><div class="ehd"><input class="ename" data-ef="name" list="entNames" value="${esc(e.name||'')}" placeholder="${esc(entLabel(p,e))}" title="Name des Eintrags – z.B. Bilder, Materialkosten"><datalist id="entNames">${entNames().map(n=>`<option value="${esc(n)}">`).join('')}</datalist>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="-1" title="Nach oben" ${entNo(p,e)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="1" title="Nach unten" ${entNo(p,e)===p.entries.length?'disabled':''}>▼</button></span>`:''}<button class="b sm d" data-act="delEntry" title="Eintrag löschen">Eintrag löschen</button></div>
   <p class="autosave">💾 Alles wird automatisch gespeichert.</p>
   ${isMatEntry(e)?`<div class="dimb"><div class="lbl" style="margin:0 0 4px">📐 Fläche</div><div class="dimr">Breite <input data-dim="dimW" inputmode="decimal" value="${e.dimW?qfmt(e.dimW):''}" placeholder="m"> × Höhe <input data-dim="dimH" inputmode="decimal" value="${e.dimH?qfmt(e.dimH):''}" placeholder="m"> <span class="lt">${entM2(e)?'= '+qfmt(entM2(e))+' m²':'= – m²'}</span></div>
-    <small class="mut">In Meter (z.B. 2.5) oder Millimeter (z.B. 2500). Material mit Einheit m² übernimmt diese Fläche automatisch als Menge.</small></div>`:''}
+    <small class="mut">In Meter (z.B. 2.5) oder Millimeter (z.B. 2500). Material mit Einheit m² übernimmt diese Fläche automatisch als Menge. Steht in der Beschreibung eines Materials z.B. «2x gestrichen», wird die Fläche nur bei diesem Material verdoppelt.</small></div>`:''}
   <div class="lbl">Gewerke (antippen)</div>
   <div class="tags">${GEWERKE.map(g=>`<button class="tagb ${(e.tags||[]).includes(g)?'on':''}" style="--c:${GWC[g]}" data-act="togTag" data-id="${g}">${g}</button>`).join('')}</div>
   <label>Bemerkungen / Fortschritt<textarea data-ef="note" rows="4" placeholder="Was wurde gemacht, Stand, Besonderheiten …">${esc(e.note)}</textarea></label>
@@ -1209,8 +1216,9 @@ document.addEventListener('change',async e=>{const t=e.target,d=t.dataset;
   if(d.up){const files=[...t.files];t.value='';if(files.length)await UP[d.up](files);return}
   if(d.bfl!==undefined&&t.tagName==='SELECT'){UI.bfl[d.bfl]=t.value;renderBelege();return}
   if(d.ch&&CH[d.ch]){CH[d.ch](t.value,t);return}
-  if(d.dim){const p=pinById(UI.pin),e=curEntry(p);if(!e)return;const v=parseDim(t.value);e[d.dim]=v;const m2=entM2(e);let n=0;
-    if(m2)for(const m of e.mats)if(isM2(m.unit)&&(m.qtyAuto||m.qty===''||m.qty==null)){m.qty=m2;m.qtyAuto=true;n++}
+  if(d.mn!==undefined&&UI.pin){const p=pinById(UI.pin),e=curEntry(p);if(e&&entM2(e)){const n=recalcM2(e);if(n){clearTimeout(saveTimers[p.id]);delete saveTimers[p.id];await dbPut('pins',p);renderPinPanel();
+      toast(`Menge angepasst: ${qfmt(entM2(e))} m² × ${matFactor(e,e.mats[+d.mn])}`,3000)}}return}
+  if(d.dim){const p=pinById(UI.pin),e=curEntry(p);if(!e)return;const v=parseDim(t.value);e[d.dim]=v;const m2=entM2(e),n=recalcM2(e);
     clearTimeout(saveTimers[p.id]);delete saveTimers[p.id];await dbPut('pins',p);renderPinPanel();if(n)toast(`${qfmt(m2)} m² bei ${n} Material-Position(en) übernommen`,3000);
     const nx=document.querySelector(d.dim==='dimW'?'[data-dim="dimH"]':'[data-katq]');if(nx&&d.dim==='dimW'&&!e.dimH)nx.focus();return}
   if(d.mq!==undefined||d.mp!==undefined){const p=pinById(UI.pin),e=curEntry(p);if(!e)return;const m=e.mats[+(d.mq??d.mp)];if(!m)return;
