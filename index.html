@@ -329,6 +329,13 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
   .pplan .rlabel{font-size:6.5pt;padding:0 1mm;background:rgba(255,255,255,.8)}
   .roomh{font-size:16pt;color:#0f766e;border-bottom:2pt solid #0d9488!important;margin:8mm 0 1mm!important;break-after:avoid;page-break-after:avoid}
   .roomh small{font-size:10pt;color:#666;font-weight:400}
+  .rcrop{position:relative;overflow:hidden;margin:2mm auto 1mm;border:.3pt solid #999;break-inside:avoid;page-break-inside:avoid}
+  .rcin{position:absolute}
+  #print .pleg{justify-content:center}
+  .rcin>img{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .rcin .rlabel{font-size:7pt;padding:0 1mm;background:rgba(255,255,255,.8)}
+  .rsel polygon{fill:none;stroke:#0d9488;stroke-width:2.5;vector-effect:non-scaling-stroke}
+  .rcin .pin{width:20px;height:20px;margin:-10px 0 0 -10px;font-size:9px;line-height:16px;border-width:1.5px;box-shadow:none}
   .pinsec h2.pinh{font-size:13pt;border-bottom-width:1pt;margin-bottom:2mm!important}
   .rtot{margin:3mm 0 2mm;padding:2.5mm 3mm;background:#e6f4f1;border-left:1.2mm solid #0d9488;font-weight:700;break-inside:avoid;break-before:avoid}
   .mt tr.sub td{font-weight:700;background:#f2f8f6}
@@ -433,7 +440,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='11 (10.10.2026, Pinfarbe zeigt Stand)';
+const APP_VERSION='12 (10.10.2026, PDF: Geschoss ohne Pins, Zimmerausschnitt mit Pins)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -511,6 +518,15 @@ function pinGroups(f,pins){const rs=roomsOf(f);if(!rs.length)return [{room:null,
   for(const p of pins){const r=roomOfPin(p);(r?g.find(x=>x.room.id===r.id):none).pins.push(p)}return [...g,none].filter(x=>x.pins.length||x.room)}
 const rectPts=([[x1,y1],[x2,y2]])=>[[x1,y1],[x2,y1],[x2,y2],[x1,y2]];
 const ptsStr=a=>a.map(([x,y])=>(x*1000).toFixed(1)+','+(y*1000).toFixed(1)).join(' ');
+const floorHasRoomAreas=f=>roomsOf(f).some(r=>r.area&&r.area.length>2);
+/* PDF: Ausschnitt eines Zimmers aus dem Grundriss, mit den Pins dieses Zimmers */
+function roomCropHtml(f,r,pins){if(!r.area||r.area.length<3)return '';const b=blobMap.get(f.planId)||{},W=b.w||1,H=b.h||1;
+  const xs=r.area.map(p=>p[0]),ys=r.area.map(p=>p[1]);let x1=Math.min(...xs),x2=Math.max(...xs),y1=Math.min(...ys),y2=Math.max(...ys);
+  const mx=Math.max((x2-x1)*.08,.015),my=Math.max((y2-y1)*.08,.015*W/H);x1=Math.max(0,x1-mx);x2=Math.min(1,x2+mx);y1=Math.max(0,y1-my);y2=Math.min(1,y2+my);
+  const bw=x2-x1,bh=y2-y1,A=(bw*W)/(bh*H),wmm=Math.min(184,105*A);
+  return `<div class="rcrop" style="width:${wmm.toFixed(1)}mm;aspect-ratio:${A.toFixed(4)}"><div class="rcin" style="width:${100/bw}%;height:${100/bh}%;left:${-x1/bw*100}%;top:${-y1/bh*100}%">
+    <img src="${urlOf(f.planId)}" alt="">${areasHtml(f)}<svg class="areas rsel" viewBox="0 0 1000 1000" preserveAspectRatio="none"><polygon points="${ptsStr(r.area)}"/></svg>
+    ${pins.map(p=>`<span class="pin ${pinState(p)}" style="left:${p.x*100}%;top:${p.y*100}%">${p.nr}${pinLbl(p)}</span>`).join('')}</div></div>${pinLegend()}`}
 function areasHtml(f){if(!isSite(f)){const rs=roomsOf(f).filter(r=>r.area&&r.area.length>2);if(!rs.length)return '';
     return `<svg class="areas rooms" viewBox="0 0 1000 1000" preserveAspectRatio="none">${rs.map(r=>`<polygon points="${ptsStr(r.area)}"/>`).join('')}</svg>`+
       rs.map(r=>{const c=centroid(r.area);return `<div class="rlabel" style="left:${c[0]*100}%;top:${c[1]*100}%">${esc(r.name)}</div>`}).join('')}
@@ -959,7 +975,7 @@ function renderExport(){
    <label>Verfasser / Bauherr<input data-pf="author" value="${esc(P.author)}"></label>
    <label>Zeitraum<input data-pf="period" value="${esc(P.period)}" placeholder="z.B. 2021 – 2025"></label>
    <div class="opts">
-    <label class="ck"><input type="checkbox" data-opt="plans" ${o.plans?'checked':''}> Grundrisse mit Pins</label>
+    <label class="ck"><input type="checkbox" data-opt="plans" ${o.plans?'checked':''}> Grundrisse mit Zimmern, pro Zimmer Ausschnitt mit Pins</label>
     <label class="ck"><input type="checkbox" data-opt="entries" ${o.entries?'checked':''}> Pro Pin: Fortschritte, Fotos und Belege (mit Aufteilung)</label>
     <label class="ck"><input type="checkbox" data-opt="mats" ${o.mats?'checked':''}> Materialbezug pro Gewerk mit Kosten</label>
     <label class="ck"><input type="checkbox" data-opt="work" ${o.work?'checked':''}> Arbeitszeit (am Schluss, vor dem Gesamtbetrag)</label>
@@ -1287,9 +1303,10 @@ async function doPrint(){
   const G=o.gw,eOk=e=>!G||entTags(e).includes(G);
   for(const f of fl){const pins=pinsOf(f.id).filter(p=>p.entries.some(eOk));if(G&&!pins.length)continue;
     if(o.plans&&f.planId){const b=blobMap.get(f.planId)||{};const w=b.w||1,hh=b.h||1;const wmm=Math.min(184,240*w/hh);
-      h+=`<section class="pg"><h2>${esc(floorLabel(f))}${isSite(f)?'':' – Grundriss'}</h2><div class="pplan" style="width:${wmm.toFixed(1)}mm"><img src="${urlOf(f.planId)}" alt="">${areasHtml(f)}${pins.map(p=>`<span class="pin ${pinState(p)}" style="left:${p.x*100}%;top:${p.y*100}%">${p.nr}${pinLbl(p)}</span>`).join('')}</div>${pinLegend()}</section>`}
+      h+=`<section class="pg"><h2>${esc(floorLabel(f))}${isSite(f)?'':' – Grundriss'}</h2><div class="pplan" style="width:${wmm.toFixed(1)}mm"><img src="${urlOf(f.planId)}" alt="">${areasHtml(f)}${floorHasRoomAreas(f)?'':pins.map(p=>`<span class="pin ${pinState(p)}" style="left:${p.x*100}%;top:${p.y*100}%">${p.nr}${pinLbl(p)}</span>`).join('')}</div>${floorHasRoomAreas(f)?'':pinLegend()}</section>`}
     if(o.entries)for(const grp of pinGroups(f,pins)){if(!grp.pins.length)continue;const hasRooms=roomsOf(f).length>0;let rb=0,rm=0;
     if(hasRooms)h+=`<h2 class="roomh">${grp.room?'▭ '+esc(grp.room.name):'Ohne Zimmer'} <small>· ${esc(floorLabel(f))} · ${grp.pins.length} Pin(s)</small></h2>`;
+    if(hasRooms&&grp.room&&o.plans&&f.planId)h+=roomCropHtml(f,grp.room,grp.pins);
     for(const p of grp.pins){const es=entriesOf(p).filter(eOk);
       const pb=belegeSorted().filter(b=>pinBelegIds(p).includes(b.id)&&(!G||b.gewerk===G));
       const bSum=pb.reduce((x,b)=>x+shareOf(b,p.id),0),mSum=matTotal(es.flatMap(e=>e.mats));rb+=bSum;rm+=mSum;
