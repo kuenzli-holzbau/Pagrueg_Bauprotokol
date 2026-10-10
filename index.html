@@ -243,6 +243,7 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .gwr input[readonly]{background:#f6f4ef;color:var(--mut)}
 .gwr .gwu{font-size:11px;color:var(--mut);white-space:nowrap;min-width:0}
 .gwr .b:disabled{opacity:.35}
+.b.lk{background:#1f2328;color:#fff;border-color:#1f2328}
 .autosave{font-size:11px;color:var(--mut);margin:-4px 0 8px}
 .efoot{display:flex;justify-content:flex-end;margin-top:12px}
 .mtot{text-align:right;font-weight:700;margin:2px 0 8px;font-size:13px}
@@ -423,7 +424,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='8 (09.10.2026, Material in Beleg-Beschreibung)';
+const APP_VERSION='9 (10.10.2026, Pin-Positionen sperrbar)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -691,6 +692,7 @@ function renderStage(){
     :`${nav}<input class="fname" value="${esc(f.name)}" data-ch="renameFloor" title="Umbenennen">${bsel}
     ${site?'':'<button class="b sm" data-act="up" title="Nach oben">▲</button><button class="b sm" data-act="down" title="Nach unten">▼</button>'}<span class="sp"></span>
     ${f.planId?`<button class="b sm" data-act="zout" title="Verkleinern">−</button><span class="zv">${Math.round(UI.zoom*100)}%</span><button class="b sm" data-act="zin" title="Vergrössern">+</button>
+    <button class="b ${S.project.pinLock?'lk':''}" data-act="togLock" title="Pin-Positionen sperren / freigeben (gilt auf allen Geräten)">${S.project.pinLock?'🔒 Pins gesperrt':'🔓 Pins verschiebbar'}</button>
     <button class="b ${SHOWLBL?'p':''}" data-act="togLbl" title="Pinbezeichnung neben dem Pin ein-/ausblenden">🏷️ ${SHOWLBL?'Namen ausblenden':'Namen einblenden'}</button>
     <button class="b ${UI.add?'p':''}" data-act="addPin">${UI.add?'Jetzt in den Plan klicken … (Esc)':'📍 Pin setzen'}</button>
     ${site?'<button class="b" data-act="markBld">🏠 Gebäude markieren</button>':'<button class="b" data-act="markRoom">▭ Zimmer zeichnen</button>'}
@@ -1068,6 +1070,7 @@ const ACT={
   selEntry:id=>{UI.entry=id;renderPinPanel()},
   moveEntry:async(id,a)=>{const p=pinById(UI.pin);if(!p)return;const i=p.entries.findIndex(x=>x.id===id),j=i+(+a.dataset.dir);if(i<0||j<0||j>=p.entries.length)return;
     [p.entries[i],p.entries[j]]=[p.entries[j],p.entries[i]];clearTimeout(saveTimers[p.id]);delete saveTimers[p.id];await dbPut('pins',p);renderPinPanel()},
+  togLock:async()=>{S.project.pinLock=!S.project.pinLock;await dbPut('kv',S.project);renderPlan();toast(S.project.pinLock?'🔒 Pin-Positionen gesperrt – Pins können nicht mehr verschoben werden':'🔓 Pins können wieder verschoben werden',3500)},
   togLbl:()=>{SHOWLBL=!SHOWLBL;try{localStorage.setItem(APP.id+'_lbl',SHOWLBL?'1':'0')}catch(_){}renderStage()},
   togTag:async g=>{const p=pinById(UI.pin),e=curEntry(p);if(!e)return;e.tags=e.tags||[];e.tags=e.tags.includes(g)?e.tags.filter(x=>x!==g):[...e.tags,g];await dbPut('pins',p);renderPinPanel();renderStage()},
   pfSet:g=>{UI.pf=g||'';renderFotos()},
@@ -1207,7 +1210,10 @@ $('#stage').addEventListener('pointerdown',e=>{
   const pinEl=e.target.closest('.pin');
   if(pinEl){e.preventDefault();const p=pinById(pinEl.dataset.pin);if(!p)return;const r=plan.getBoundingClientRect();const sx=e.clientX,sy=e.clientY;let moved=false;
     try{pinEl.setPointerCapture(e.pointerId)}catch(_){}
-    const mv=ev=>{if(!moved&&Math.hypot(ev.clientX-sx,ev.clientY-sy)<4)return;moved=true;pinEl.style.cursor='grabbing';
+    const locked=!!S.project.pinLock;let warned=false;
+    const mv=ev=>{if(!moved&&Math.hypot(ev.clientX-sx,ev.clientY-sy)<4)return;
+      if(locked){if(!warned&&Math.hypot(ev.clientX-sx,ev.clientY-sy)>12){warned=true;toast('🔒 Pins sind gesperrt – zum Verschieben oben «🔒 Pins gesperrt» antippen',3500)}return}
+      moved=true;pinEl.style.cursor='grabbing';
       p.x=clamp((ev.clientX-r.left)/r.width);p.y=clamp((ev.clientY-r.top)/r.height);pinEl.style.left=p.x*100+'%';pinEl.style.top=p.y*100+'%'};
     const up=async()=>{pinEl.removeEventListener('pointermove',mv);pinEl.removeEventListener('pointerup',up);pinEl.removeEventListener('pointercancel',up);
       if(moved)await dbPut('pins',p);if(!moved&&(UI.pin!==p.id||UI.entry==='none'))UI.entry=null;UI.pin=p.id;renderStage();renderPinPanel()};
