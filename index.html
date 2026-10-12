@@ -181,6 +181,8 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .ent.c span{color:var(--mut);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .ent.o{padding:12px;border-color:var(--acc);box-shadow:0 0 0 2px var(--acc2);margin-bottom:12px}
 .ehd{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.edate{display:flex;align-items:center;gap:8px;margin:-4px 0 6px;font-size:13px}
+.edate input{flex:none;width:auto}
 .ehd .ename{flex:1;min-width:0;font-weight:700;font-size:14px;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:#fff}
 .ehd input{flex:1;padding:8px 9px;border:1px solid var(--line);border-radius:7px;font-size:14px}
 .entbar{display:flex;align-items:center;justify-content:space-between;margin:4px 0 8px}
@@ -455,7 +457,9 @@ const APP={
   db:'baustellenprotokoll-2',   // Name der lokalen Datenbank (IndexedDB)
   table:'items_2',              // Supabase-Tabelle
   bucket:'files_2',             // Supabase-Speicher für Fotos/Pläne/Belege
-  title:'Baustellenprotokoll 2' // Standardname
+  title:'Baustellenprotokoll 2', // Standardname
+  dates:false,                  // Datum bei den Einträgen (Fortschritten)
+  work:true                     // Reiter «Arbeitszeit»
 };
 /* ---------- Hilfsfunktionen ---------- */
 const $=s=>document.querySelector(s);
@@ -470,7 +474,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='18 (11.10.2026, Wandformen mit Knicken und Skizze)';
+const APP_VERSION='19 (12.10.2026, gemeinsame Codebasis mit Protokoll 1)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -567,7 +571,7 @@ function areasHtml(f){if(!isSite(f)){const rs=roomsOf(f).filter(r=>r.area&&r.are
 const pinsOf=fid=>S.pins.filter(p=>p.floorId===fid).sort((a,b)=>a.nr-b.nr);
 const belegeSorted=()=>[...S.belege].sort((a,b)=>(a.date||'').localeCompare(b.date||'')||a.nr-b.nr);
 /* Jeder Pin hat mehrere Einträge (Fortschritt): Datum, Bemerkung, Fotos, Material und Belege pro Gewerk */
-const newEntry=()=>({id:uid(),note:'',tags:[],photoIds:[],belegIds:[],belegGw:{},gwText:{},mats:[],by:SES?SES.email:''});
+const newEntry=()=>({id:uid(),...(APP.dates?{date:today()}:{}),note:'',tags:[],photoIds:[],belegIds:[],belegGw:{},gwText:{},mats:[],by:SES?SES.email:''});
 function normPin(p){if(!p)return p;
   if(!Array.isArray(p.entries))p.entries=[{id:p.id+'-e1',date:p.date||today(),note:p.note||'',photoIds:p.photoIds||[],belegIds:p.belegIds||[],belegGw:p.belegGw||{},gwText:p.gwText||{},material:p.material||'',mats:[],by:p.by||''}];
   for(const k of ['date','note','photoIds','belegIds','belegGw','gwText','material'])delete p[k];
@@ -577,7 +581,8 @@ const entriesOf=p=>[...p.entries];
 const entNo=(p,e)=>p.entries.indexOf(e)+1;
 /* Eintragsnamen: Standard 1 = Bilder, 2 = Materialkosten, danach frei; jederzeit änderbar */
 const ENT_DEF=['Bilder','Materialkosten'];
-const entLabel=(p,e)=>(e.name||'').trim()||`Eintrag ${entNo(p,e)}`;
+const entLabel=(p,e)=>(e.name||'').trim()||(APP.dates&&e.date?fmtDate(e.date):'')||`Eintrag ${entNo(p,e)}`;
+const entDateSfx=e=>APP.dates&&e.date&&(e.name||'').trim()?' · '+fmtDate(e.date):'';
 /* Pin-Stand: s0 = rot (nichts erfasst), s1 = halb grün (Bilder), s2 = ganz grün (Bilder + Material) */
 const entHas=e=>!!(e.photoIds.length||(e.note||'').trim()||e.belegIds.length||e.mats.length||(e.work||[]).length||Object.values(e.gwText||{}).some(v=>(v||'').trim()));
 function pinState(p){const n=e=>(e.name||'').toLowerCase(),b=p.entries.some(e=>/bild/.test(n(e))&&entHas(e)),m=p.entries.some(e=>/material/.test(n(e))&&entHas(e));return b&&m?'s2':b||m?'s1':'s0'}
@@ -756,6 +761,7 @@ async function renderPdfPage(doc,n,maxPx){const p=await doc.getPage(n);const v0=
   await p.render({canvasContext:g,viewport:v}).promise;return await new Promise(r=>c.toBlob(r,'image/jpeg',.88))}
 
 /* ---------- Rendering ---------- */
+if(!APP.work){const b=document.querySelector('[data-act="tab"][data-id="arbeit"]');if(b)b.remove()}
 function render(){
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.id===UI.tab));
   document.querySelectorAll('.view').forEach(v=>v.hidden=v.id!=='v-'+UI.tab);
@@ -811,7 +817,7 @@ function renderPinPanel(){
     el.innerHTML=`${bl}${rl}<div class="hd">Einträge ${esc(floorLabel(cf))}</div>${pins.length?gr.map(g=>(gr.length>1||g.room?`<div class="rgh"><span>${g.room?'▭ '+esc(g.room.name):'Ohne Zimmer'}</span><span>${g.pins.length}</span></div>`:'')+g.pins.map(pli).join('')).join(''):'<p class="mut">Noch keine Pins. Klicke oben auf «📍 Pin setzen» und dann auf die Stelle im Grundriss.</p>'}`;
     return}
   const e=curEntry(p);
-  const entHtml=entriesOf(p).map(x=>e&&x.id===e.id?entryEditor(p,x):`<div class="ent c" data-act="selEntry" data-id="${x.id}"><b>${esc(entLabel(p,x))}</b><span>${esc((x.note||'').split('\n')[0]||'–')}</span><small class="mut">${[x.photoIds.length?'📷'+x.photoIds.length:'',x.belegIds.length?'🧾'+x.belegIds.length:'',entM2(x)?'📐 '+qfmt(entM2(x))+' m²':'',x.mats.length?'🪵 CHF '+chf(matTotal(x.mats)):''].filter(Boolean).join(' ')}${entTags(x).length?'<br>'+gwDots(entTags(x)):''}</small>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="-1" title="Nach oben" ${entNo(p,x)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="1" title="Nach unten" ${entNo(p,x)===p.entries.length?'disabled':''}>▼</button></span>`:''}</div>`).join('');
+  const entHtml=entriesOf(p).map(x=>e&&x.id===e.id?entryEditor(p,x):`<div class="ent c" data-act="selEntry" data-id="${x.id}"><b>${esc(entLabel(p,x))}<small class="mut" style="font-weight:400">${entDateSfx(x)}</small></b><span>${esc((x.note||'').split('\n')[0]||'–')}</span><small class="mut">${[x.photoIds.length?'📷'+x.photoIds.length:'',x.belegIds.length?'🧾'+x.belegIds.length:'',entM2(x)?'📐 '+qfmt(entM2(x))+' m²':'',x.mats.length?'🪵 CHF '+chf(matTotal(x.mats)):''].filter(Boolean).join(' ')}${entTags(x).length?'<br>'+gwDots(entTags(x)):''}</small>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="-1" title="Nach oben" ${entNo(p,x)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${x.id}" data-dir="1" title="Nach unten" ${entNo(p,x)===p.entries.length?'disabled':''}>▼</button></span>`:''}</div>`).join('');
   el.innerHTML=`<div class="hd"><button class="b sm" data-act="closePin">‹ Alle Pins</button><span class="pnr">${p.nr}</span></div>
   <label>Titel / Raum<input data-f="title" value="${esc(p.title)}" placeholder="z.B. Bad OG – Wandanschluss"></label>
   ${roomsOf(floorById(p.floorId)).length?`<p class="proom">▭ Zimmer: ${roomOfPin(p)?esc(roomOfPin(p).name):'<span class="mut" style="font-weight:400">ausserhalb der Zimmerflächen</span>'}</p>`:''}
@@ -848,6 +854,7 @@ function entryEditor(p,e){
       <div class="chips">${bl.map(chip).join('')}</div>${sel(g)}</div></details>`};
   const other=entBelegeGw(e,'');
   return `<div class="ent o"><div class="ehd"><input class="ename" data-ef="name" list="entNames" value="${esc(e.name||'')}" placeholder="${esc(entLabel(p,e))}" title="Name des Eintrags – z.B. Bilder, Materialkosten"><datalist id="entNames">${entNames().map(n=>`<option value="${esc(n)}">`).join('')}</datalist>${p.entries.length>1?`<span class="emv"><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="-1" title="Nach oben" ${entNo(p,e)===1?'disabled':''}>▲</button><button class="b sm" data-act="moveEntry" data-id="${e.id}" data-dir="1" title="Nach unten" ${entNo(p,e)===p.entries.length?'disabled':''}>▼</button></span>`:''}<button class="b sm d" data-act="delEntry" title="Eintrag löschen">🗑</button></div>
+  ${APP.dates?`<label class="edate">Datum <input type="date" data-ef="date" value="${esc(e.date||'')}"></label>`:''}
   <p class="autosave">💾 Alles wird automatisch gespeichert.</p>
   ${isMatEntry(e)?`<div class="dimb"><div class="lbl" style="margin:0 0 4px">📐 Fläche${isFlat(p)?' (Boden/Decke)':''}</div><div class="dimwrap"><div class="dimin"><div class="dimr"><span class="dl">${dimLbl(p)[0]}</span><input data-dim="dimW" inputmode="decimal" value="${e.dimW?qfmt(e.dimW):''}" placeholder="m"></div>
     <div class="dimr" title="${isFlat(p)?'Anfang → Ende':'links → rechts'} (rechts leer = gleich wie links)"><span class="dl">${dimLbl(p)[1]}</span><input data-dim="dimH" inputmode="decimal" value="${e.dimH?qfmt(e.dimH):''}" placeholder="${isFlat(p)?'Anf.':'links'}"> → <input data-dim="dimH2" inputmode="decimal" value="${e.dimH2?qfmt(e.dimH2):''}" placeholder="${e.dimH?qfmt(e.dimH):(isFlat(p)?'Ende':'rechts')}"></div>
@@ -1050,7 +1057,7 @@ function renderExport(){
     <label class="ck"><input type="checkbox" data-opt="plans" ${o.plans?'checked':''}> Grundrisse mit Zimmern, pro Zimmer Ausschnitt mit Pins</label>
     <label class="ck"><input type="checkbox" data-opt="entries" ${o.entries?'checked':''}> Pro Pin: Fortschritte, Fotos und Belege (mit Aufteilung)</label>
     <label class="ck"><input type="checkbox" data-opt="mats" ${o.mats?'checked':''}> Materialbezug pro Gewerk mit Kosten</label>
-    <label class="ck"><input type="checkbox" data-opt="work" ${o.work?'checked':''}> Arbeitszeit (am Schluss, vor dem Gesamtbetrag)</label>
+    ${APP.work?`<label class="ck"><input type="checkbox" data-opt="work" ${o.work?'checked':''}> Arbeitszeit (am Schluss, vor dem Gesamtbetrag)</label>`:''}
     <label class="ck"><input type="checkbox" data-opt="list" ${o.list?'checked':''}> Belegliste mit Totalen pro Kategorie</label>
     <label class="ck"><input type="checkbox" data-opt="att" ${o.att?'checked':''}> Belege als Anhang (eine Seite pro Beleg)</label>
     <label style="margin-top:10px">Nur ein Gewerk (Auszug, z.B. für den Sanitär)<select data-ch="pgw"><option value="">Alle Gewerke</option>${GEWERKE.map(g=>`<option ${o.gw===g?'selected':''}>${g}</option>`).join('')}</select></label></div>
@@ -1080,7 +1087,7 @@ function renderFotos(){
   $('#v-fotos').innerHTML=`<div class="fbar"><button class="tagb ${!UI.pf?'on':''}" style="--c:#1f2328" data-act="pfSet" data-id="">Alle</button>${GEWERKE.map(g=>`<button class="tagb ${UI.pf===g?'on':''}" style="--c:${GWC[g]}" data-act="pfSet" data-id="${g}">${g}</button>`).join('')}
     <select data-ch="pfl"><option value="">Alle Pläne</option>${orderedFloors().map(f=>`<option value="${f.id}" ${UI.pfl===f.id?'selected':''}>${esc(floorLabel(f))}</option>`).join('')}</select>
     <span class="sp"></span><span class="mut">${items.length} Foto(s)</span></div>
-    ${items.length?`<div class="fgrid">${items.map(x=>`<div class="fc"><img src="${urlOf(x.id)}" alt="" data-act="zoomImg" data-id="${x.id}" loading="lazy"><div class="fcap"><b>${esc(floorLabel(x.f))}${roomOfPin(x.p)?' · '+esc(roomOfPin(x.p).name):''} · ${x.p.nr} ${esc(x.p.title||'')}</b><span class="mut">${esc(entLabel(x.p,x.e))}${x.e.note?' · '+esc(x.e.note.split('\n')[0]):''}</span><div>${gwDots(x.tg)}</div><a data-act="gotoEntry" data-id="${x.p.id}" data-e="${x.e.id}">Zum Eintrag ›</a></div></div>`).join('')}</div>`
+    ${items.length?`<div class="fgrid">${items.map(x=>`<div class="fc"><img src="${urlOf(x.id)}" alt="" data-act="zoomImg" data-id="${x.id}" loading="lazy"><div class="fcap"><b>${esc(floorLabel(x.f))}${roomOfPin(x.p)?' · '+esc(roomOfPin(x.p).name):''} · ${x.p.nr} ${esc(x.p.title||'')}</b><span class="mut">${esc(entLabel(x.p,x.e))}${entDateSfx(x.e)}${x.e.note?' · '+esc(x.e.note.split('\n')[0]):''}</span><div>${gwDots(x.tg)}</div><a data-act="gotoEntry" data-id="${x.p.id}" data-e="${x.e.id}">Zum Eintrag ›</a></div></div>`).join('')}</div>`
       :`<p class="mut c" style="margin-top:40px">${UI.pf?'Keine Fotos mit Gewerk «'+UI.pf+'». Gewerke markierst du im Eintrag mit den farbigen Knöpfen.':'Noch keine Fotos erfasst.'}</p>`}`}
 function showImg(id){const lb=$('#lb');lb.querySelector('img').src=urlOf(id);lb.hidden=false}
 
@@ -1397,9 +1404,9 @@ async function doPrint(){
    <tr><td>Erstellt am</td><td>${fmtDate(today())}</td></tr>
    <tr><td>Umfang</td><td>${fl.length} Plan/Pläne · ${S.pins.length} Pins · ${S.pins.reduce((s,p)=>s+p.entries.length,0)} Einträge · ${S.pins.reduce((s,p)=>s+pinPhotos(p).length,0)} Fotos · ${S.belege.length} Belege</td></tr>
    ${allMats().length?`<tr><td>Material total</td><td>CHF ${chf(matTotal(allMats()))}<br><small>${GEWERKE.map(g=>{const t=matTotal(allMats().filter(m=>(m.gw||'Holzbau')===g));return t?g+' '+chf(t):''}).filter(Boolean).join(' · ')}</small></td></tr>`:''}
-   ${S.work.length?`<tr><td>Arbeitszeit</td><td>${hfmt(sumH(S.work))} · CHF ${chf(sumC(S.work))}</td></tr>`:''}
+   ${APP.work&&S.work.length?`<tr><td>Arbeitszeit</td><td>${hfmt(sumH(S.work))} · CHF ${chf(sumC(S.work))}</td></tr>`:''}
    ${S.belege.length?`<tr><td>Total Belege</td><td>CHF ${chf(S.belege.reduce((s,b)=>s+(+b.amount||0),0))}</td></tr>`:''}</table>
-   <h3>Inhalt</h3><ol>${fl.map(f=>`<li>${esc(floorLabel(f))} (${pinsOf(f.id).length} Pins${roomsOf(f).length?' in '+roomsOf(f).length+' Zimmern: '+roomsOf(f).map(r=>esc(r.name)).join(', '):''})</li>`).join('')}${o.entries?'<li>Kostenübersicht nach Zimmer und Pin</li>':''}${o.mats&&allMats().length?'<li>Materialbezug</li>':''}${o.list&&S.belege.length?'<li>Belegliste</li>':''}${o.work&&!o.gw&&S.work.length?'<li>Arbeitszeit</li>':''}<li>Gesamtbetrag Projekt</li>${o.att&&S.belege.length?'<li>Anhang: Belege</li>':''}</ol></section>`;
+   <h3>Inhalt</h3><ol>${fl.map(f=>`<li>${esc(floorLabel(f))} (${pinsOf(f.id).length} Pins${roomsOf(f).length?' in '+roomsOf(f).length+' Zimmern: '+roomsOf(f).map(r=>esc(r.name)).join(', '):''})</li>`).join('')}${o.entries?'<li>Kostenübersicht nach Zimmer und Pin</li>':''}${o.mats&&allMats().length?'<li>Materialbezug</li>':''}${o.list&&S.belege.length?'<li>Belegliste</li>':''}${APP.work&&o.work&&!o.gw&&S.work.length?'<li>Arbeitszeit</li>':''}<li>Gesamtbetrag Projekt</li>${o.att&&S.belege.length?'<li>Anhang: Belege</li>':''}</ol></section>`;
   const G=o.gw,eOk=e=>!G||entTags(e).includes(G);
   for(const f of fl){const pins=pinsOf(f.id).filter(p=>p.entries.some(eOk));if(G&&!pins.length)continue;
     if(o.plans&&f.planId){const b=blobMap.get(f.planId)||{};const w=b.w||1,hh=b.h||1;const wmm=Math.min(184,240*w/hh);
@@ -1412,7 +1419,7 @@ async function doPrint(){
       const bSum=pb.reduce((x,b)=>x+shareOf(b,p.id),0),mSum=matTotal(es.flatMap(e=>e.mats));rb+=bSum;rm+=mSum;
       h+=`<section class="pinsec"><h2 class="pinh"><span class="enr" style="display:inline-flex;margin-right:2mm;vertical-align:middle">${p.nr}</span>${esc(p.title||'Ohne Titel')} <span style="font-weight:400;color:#666;font-size:11pt">· ${esc(floorLabel(f))}${grp.room?' · '+esc(grp.room.name):''}</span></h2>
       <h3 class="ph">Fortschritte</h3>
-      ${es.map(e=>`<div class="ent-p"><div class="edt">${esc(entLabel(p,e))}${entTags(e).length?` <span style="font-weight:400;color:#555">· ${entTags(e).join(', ')}</span>`:''}</div>
+      ${es.map(e=>`<div class="ent-p"><div class="edt">${esc(entLabel(p,e))}${entDateSfx(e)}${entTags(e).length?` <span style="font-weight:400;color:#555">· ${entTags(e).join(', ')}</span>`:''}</div>
         ${dimTxt(e)?`<p><i>Fläche:</i> ${dimTxt(e)}</p>${isShaped(e)?`<div class="wskp">${shapeSvg(e,200,120)}</div>`:''}`:''}${e.note?`<p>${nl2br(e.note)}</p>`:''}${e.material?`<p><i>Material:</i> ${nl2br(e.material)}</p>`:''}
         ${GEWERKE.map(g=>{const t=e.gwText[g]||'',ms=matsOf(e,g).map(x=>x[0]);if(!t&&!ms.length)return '';return `${t?`<p><b>${g}:</b> ${nl2br(t)}</p>`:`<p><b>${g}-Material:</b></p>`}${ms.length?matTable(ms):''}`}).join('')}
         ${e.photoIds.length?`<div class="eph">${e.photoIds.map(id=>`<img src="${urlOf(id)}" alt="">`).join('')}</div>`:''}</div>`).join('')||'<p style="color:#666">Keine Einträge.</p>'}
@@ -1446,13 +1453,13 @@ async function doPrint(){
     <h3>Totale nach Gewerk</h3><table><tbody>${[...GEWERKE,''].filter(g=>bs.some(b=>(b.gewerk||'')===g)).map(g=>`<tr><td>${g||'Ohne Gewerk'}</td><td style="text-align:right">${chf(bs.filter(b=>(b.gewerk||'')===g).reduce((s,b)=>s+(+b.amount||0),0))}</td></tr>`).join('')}</tbody></table>
     <h3>Totale nach Kategorie</h3><table><tbody>${CATS.filter(c=>bs.some(b=>b.category===c)).map(c=>`<tr><td>${c}</td><td style="text-align:right">${chf(bs.filter(b=>b.category===c).reduce((s,b)=>s+(+b.amount||0),0))}</td></tr>`).join('')}</tbody></table>
     <h3>Totale nach Jahr</h3><table><tbody>${[...new Set(bs.map(b=>(b.date||'').slice(0,4)))].sort().map(y=>`<tr><td>${y||'ohne Datum'}</td><td style="text-align:right">${chf(bs.filter(b=>(b.date||'').slice(0,4)===y).reduce((s,b)=>s+(+b.amount||0),0))}</td></tr>`).join('')}</tbody></table></section>`}
-  if(o.work&&!G&&S.work.length){const ws=workSorted(),tz=ws.some(w=>w.von||w.bis),yr=new Map(),rt=new Set(ws.map(workRate));
+  if(APP.work&&o.work&&!G&&S.work.length){const ws=workSorted(),tz=ws.some(w=>w.von||w.bis),yr=new Map(),rt=new Set(ws.map(workRate));
     for(const w of ws){const y=(w.date||'').slice(0,4)||'ohne Datum',a=yr.get(y)||[0,0];a[0]+=workHours(w);a[1]+=workCost(w);yr.set(y,a)}
     h+=`<section class="msum"><h2>Arbeitszeit</h2>${rt.size===1?`<p style="color:#666">Stundenansatz CHF ${chf([...rt][0])}</p>`:''}<table class="mt"><thead><tr><th>Datum</th>${tz?'<th>Von</th><th>Bis</th><th class="r">Pause</th>':''}<th>Bemerkung</th><th class="r">Std.</th>${rt.size>1?'<th class="r">Ansatz</th>':''}<th class="r">CHF</th></tr></thead><tbody>
     ${ws.map(w=>`<tr><td>${fmtDate(w.date)}</td>${tz?`<td>${esc(w.von||'')}</td><td>${esc(w.bis||'')}</td><td class="r">${w.pause?w.pause+' Min':''}</td>`:''}<td>${esc(w.note||'')}</td><td class="r">${chf(workHours(w))}</td>${rt.size>1?`<td class="r">${chf(workRate(w))}</td>`:''}<td class="r">${chf(workCost(w))}</td></tr>`).join('')}
     <tr class="tot"><td colspan="${tz?5:2}">Total Arbeitszeit</td><td class="r">${chf(sumH(ws))}</td>${rt.size>1?'<td></td>':''}<td class="r">${chf(sumC(ws))}</td></tr></tbody></table>
     <h3>Nach Jahr</h3><table class="mt"><thead><tr><th>Jahr</th><th class="r">Std.</th><th class="r">CHF</th></tr></thead><tbody>${[...yr].sort().map(([y,[hh,c]])=>`<tr><td>${y}</td><td class="r">${chf(hh)}</td><td class="r">${chf(c)}</td></tr>`).join('')}</tbody></table></section>`}
-  {const bT=bs.reduce((x,b)=>x+(+b.amount||0),0),mT=matTotal(G?allMats().filter(m=>(m.gw||'Holzbau')===G):allMats()),wT=!G?sumC(S.work):0,wH=!G?sumH(S.work):0;
+  {const bT=bs.reduce((x,b)=>x+(+b.amount||0),0),mT=matTotal(G?allMats().filter(m=>(m.gw||'Holzbau')===G):allMats()),wT=APP.work&&!G?sumC(S.work):0,wH=APP.work&&!G?sumH(S.work):0;
     h+=`<section class="msum"><h2>Gesamtbetrag Projekt${G?' – Gewerk '+esc(G):''}</h2><table class="mt" style="font-size:11pt"><tbody>
     <tr><td>Belege</td><td class="r">CHF ${chf(bT)}</td></tr>${mT?`<tr><td>Material (erfasste Mengen, Netto-Preise)</td><td class="r">CHF ${chf(mT)}</td></tr>`:''}${wH?`<tr><td>Arbeitszeit (${hfmt(wH)})</td><td class="r">CHF ${chf(wT)}</td></tr>`:''}
     <tr class="tot"><td>Gesamtbetrag</td><td class="r">CHF ${chf(bT+mT+wT)}</td></tr></tbody></table></section>`}
@@ -1593,7 +1600,7 @@ async function logout(){const q=await queueCount();
   SYNCMETA=kv.find(x=>x.id==='sync')||{id:'sync',lastPull:null,initialized:false};
   S.floors=f;S.buildings=bd;S.articles=ar;S.work=wk;S.pins=p;S.belege=b;S.blobs=bl;bl.forEach(x=>blobMap.set(x.id,x));
   S.pins.forEach(normPin);loadGw();
-  for(const x of S.pins){let ch=renameGw(x);x.entries.forEach((e,i)=>{if(e.name===undefined){e.name=ENT_DEF[i]||'';ch=true}});if(ch)await dbPut('pins',x)}for(const x of S.belege)if(renameGw(x))await dbPut('belege',x);
+  for(const x of S.pins){let ch=renameGw(x);if(APP.dates&&!x.ord){x.entries.sort((a,b)=>(a.date||'').localeCompare(b.date||''));x.ord=1;ch=true}x.entries.forEach((e,i)=>{if(e.name===undefined){e.name=ENT_DEF[i]||'';ch=true}});if(ch)await dbPut('pins',x)}for(const x of S.belege)if(renameGw(x))await dbPut('belege',x);
   UI.floor=firstFloorId();
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
   if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js?app='+APP.id).catch(e=>console.warn(e));
