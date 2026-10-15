@@ -506,7 +506,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='24 (15.10.2026, Positionen: Pin oder Allg. Verbrauchsmaterial, bessere Belegerkennung)';
+const APP_VERSION='25 (15.10.2026, Positionen: Entsorgung)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -691,14 +691,18 @@ function distribute(amount,pins,b,into){const out=new Map();if(!pins.length||!am
 /* Mit Positionen: jede Position gehört einem Pin oder zum «Allg. Verbrauchsmaterial» (it.pin = Pin-ID | 'allg' | '' = offen).
    Rest (Beleg − Positionen, z.B. MWST/Rundung) wird anteilig auf die zugeordneten Positionen verteilt. */
 const ALLG='allg';
+/* Projekt-Kostenstellen ohne Pin (Positionen können statt einem Pin hierhin) */
+const GEN=[{k:'allg',n:'Allg. Verbrauchsmaterial',h:'Allgemeines Verbrauchsmaterial'},{k:'entsorgung',n:'Entsorgung',h:'Entsorgung'}];
+const isGen=k=>GEN.some(g=>g.k===k);
+const genGuess=name=>/entsorg|mulde|deponie|kehricht|sperrgut|bauschutt|abfall|recycling|containermiete|gebinde.*entsorg/i.test(name||'')?'entsorgung':'';
 function belegBreakdown(b){const pins=S.pins.filter(p=>pinBelegIds(p).includes(b.id)),amt=+b.amount||0,m=new Map(),
-  res={m,items:[],rest:0,restMap:new Map(),area:false,manual:false,missing:[],allg:0,open:0,openN:0,hasItems:false};
+  res={m,items:[],rest:0,restMap:new Map(),area:false,manual:false,missing:[],allg:0,gen:{},open:0,openN:0,hasItems:false};
   const its=(b.items||[]).filter(it=>it.amount!==''&&it.amount!=null&&+it.amount);
   if(its.length){res.hasItems=true;const base=new Map();let sumI=0;
-    for(const it of its){const a=+it.amount;sumI=c2(sumI+a);const k=it.pin===ALLG?ALLG:(it.pin&&pinById(it.pin)?it.pin:'');if(!k){res.open=c2(res.open+a);res.openN++}else base.set(k,c2((base.get(k)||0)+a));res.items.push({it,k})}
+    for(const it of its){const a=+it.amount;sumI=c2(sumI+a);const k=isGen(it.pin)?it.pin:(it.pin&&pinById(it.pin)?it.pin:'');if(!k){res.open=c2(res.open+a);res.openN++}else base.set(k,c2((base.get(k)||0)+a));res.items.push({it,k})}
     res.rest=c2(amt-sumI);const bt=[...base.values()].reduce((x,y)=>x+y,0),keys=[...base.keys()];let acc=0;
     keys.forEach((k,i)=>{const r=!res.rest||!bt?0:(i===keys.length-1?c2(res.rest-acc):c2(res.rest*base.get(k)/bt));acc=c2(acc+r);res.restMap.set(k,r);
-      const v=c2(base.get(k)+r);if(k===ALLG)res.allg=v;else m.set(k,v)});
+      const v=c2(base.get(k)+r);if(isGen(k)){res.gen[k]=v;if(k===ALLG)res.allg=v}else m.set(k,v)});
     if(!bt&&res.rest)res.open=c2(res.open+res.rest);
     return res}
   if(!pins.length)return res;res.missing=pins.length>1?pins.filter(p=>!pinAreaFor(p,b)):[];
@@ -858,7 +862,7 @@ async function recognizeBeleg(b,quiet){
   if(r.amount!=null&&(b.amount===''||b.amount==null||b.auto.amount)){b.amount=Math.round(r.amount*100)/100;b.auto.amount=true;got.push('CHF '+chf(b.amount))}
   if(r.date&&(b.dateAuto||b.auto.date)){b.date=r.date;b.dateAuto=false;b.auto.date=true;got.push(fmtDate(r.date))}
   if(r.supplier&&(!b.supplier||b.auto.supplier)){b.supplier=r.supplier;b.auto.supplier=true;got.push(r.supplier)}
-  if(!(b.items||[]).length||b.auto.items){const ps=receiptPositions(text,b.amount!==''&&b.amount!=null?+b.amount:r.amount);if(ps.length){b.items=ps.map(x=>({id:uid(),name:x.name,qty:x.qty,amount:x.amount,pin:''}));b.auto.items=true;got.push(ps.length+' Position(en)')}}
+  if(!(b.items||[]).length||b.auto.items){const ps=receiptPositions(text,b.amount!==''&&b.amount!=null?+b.amount:r.amount);if(ps.length){b.items=ps.map(x=>({id:uid(),name:x.name,qty:x.qty,amount:x.amount,pin:genGuess(x.name)}));b.auto.items=true;got.push(ps.length+' Position(en)')}}
   if(descIsDefault(b)){const d=itemsDesc(receiptItems(text));if(d){b.desc=d;b.auto.desc=true;got.push('Material')}}
   await dbPut('belege',b);
   toast(got.length?`B-${pad(b.nr)} erkannt: ${got.join(' · ')} – bitte kurz kontrollieren (gelb markiert)`:`B-${pad(b.nr)}: kein Betrag gefunden – bitte von Hand eintragen`,got.length?6000:5000);
@@ -1105,13 +1109,13 @@ async function applyGwMap(MAP){for(const x of S.pins)if(renameGw(x,MAP))await db
   for(const k of ['gf','pf','fg'])if(MAP[UI[k]]!==undefined)UI[k]=MAP[UI[k]];if(UI.bfl&&MAP[UI.bfl.gw]!==undefined)UI.bfl.gw=MAP[UI.bfl.gw];if(MAP[UI.opts.gw]!==undefined)UI.opts.gw=MAP[UI.opts.gw]}
 const gwPalette=['#0891b2','#65a30d','#ea580c','#7c3aed','#be123c','#0f766e','#a16207','#4338ca','#15803d','#b91c1c'];
 /* Position einem Pin zugeordnet → Beleg hängt automatisch im Material-Eintrag dieses Pins; nicht mehr gebraucht → wieder lösen */
-async function syncItemLinks(b,old){b.itemLinks=b.itemLinks||[];const want=new Set((b.items||[]).map(it=>it.pin).filter(v=>v&&v!==ALLG&&pinById(v)));
+async function syncItemLinks(b,old){b.itemLinks=b.itemLinks||[];const want=new Set((b.items||[]).map(it=>it.pin).filter(v=>v&&!isGen(v)&&pinById(v)));
   for(const pid of want){const p=pinById(pid);if(pinBelegIds(p).includes(b.id))continue;const e=p.entries.find(x=>isMatEntry(x))||lastEntry(p);if(!e)continue;await linkBeleg(p,e,b.id,b.gewerk||'');if(!b.itemLinks.includes(pid))b.itemLinks.push(pid)}
   for(const pid of [...b.itemLinks])if(!want.has(pid)){const p=pinById(pid),e=p&&entryWithBeleg(p,b.id);if(e)await unlinkBeleg(p,e,b.id);b.itemLinks=b.itemLinks.filter(x=>x!==pid)}}
 function pdfItemRows(b,pid){const br=belegBreakdown(b);if(!br.hasItems)return '';
   return br.items.filter(x=>x.k===pid).map(x=>`<tr class="bip"><td></td><td colspan="4">↳ ${itemNo(b,(b.items||[]).indexOf(x.it))} ${esc(x.it.name)}${x.it.qty?' · '+esc(x.it.qty):''}</td><td class="r">${chf(x.it.amount)}</td><td class="r"></td></tr>`).join('')
     +(br.restMap.get(pid)?`<tr class="bip"><td></td><td colspan="4">↳ Anteil Rest (MWST/Rundung/Rabatt)</td><td class="r">${chf(br.restMap.get(pid))}</td><td class="r"></td></tr>`:'')}
-const itemPinSel=(b,i,it)=>{const v=it.pin||'';return `<select data-bi="pin" data-b="${b.id}" data-ii="${i}" class="${v?'':'open'}"><option value="" ${v?'':'selected'}>– zuordnen –</option><option value="${ALLG}" ${v===ALLG?'selected':''}>Allg. Verbrauchsmaterial</option>
+const itemPinSel=(b,i,it)=>{const v=it.pin||'';return `<select data-bi="pin" data-b="${b.id}" data-ii="${i}" class="${v?'':'open'}"><option value="" ${v?'':'selected'}>– zuordnen –</option>${GEN.map(g=>`<option value="${g.k}" ${v===g.k?'selected':''}>${g.n}</option>`).join('')}
   ${orderedFloors().map(f=>{const ps=pinsOf(f.id);return ps.length?`<optgroup label="${esc(floorLabel(f))}">${ps.map(p=>`<option value="${p.id}" ${v===p.id?'selected':''}>${p.nr}${p.title?' – '+esc(p.title):''}</option>`).join('')}</optgroup>`:''}).join('')}</select>`};
 function itemsRow(b,pins){const br=belegBreakdown(b),its=b.items||[],sumI=c2(its.reduce((x,y)=>x+(+y.amount||0),0));
   return `<tr class="bitems"><td></td><td colspan="9"><table class="bit"><thead><tr><th>Nr.</th><th>Artikel</th><th>Menge</th><th class="r">CHF</th><th>gehört zu</th><th class="r">inkl. Rest</th><th></th></tr></thead><tbody>
@@ -1128,13 +1132,13 @@ function pstList(){const w=String(UI.pstQ||'').toLowerCase().split(/\s+/).filter
     <p class="mut" style="font-size:12px;margin:6px 0 0">${L.length?`${sh.length} von ${L.length} Artikel${L.length>sh.length?` · <a data-act="pstMore">weitere anzeigen</a>`:''}`:'Kein Artikel gefunden.'}</p>`}
 /* ---------- Kostenübersicht (Kopfzeile Σ und Reiter Export) ---------- */
 function costTotals(){const b=S.belege.reduce((x,y)=>x+(+y.amount||0),0),m=matTotal(allMats()),w=APP.work?sumC(S.work):0,wh=APP.work?sumH(S.work):0;
-  const byGw=GEWERKE.map(g=>[g,matTotal(allMats().filter(x=>(x.gw||'Holzbau')===g))]).filter(x=>x[1]);let allg=0,open=0;
-  for(const x of S.belege){const br=belegBreakdown(x);if(br.hasItems){allg+=br.allg;open+=br.open}else if(!S.pins.some(p=>pinBelegIds(p).includes(x.id)))open+=+x.amount||0}
-  return {b,m,w,wh,byGw,nb:S.belege.length,t:rnd2(b+m+w),allg:rnd2(allg),open:rnd2(open)}}
+  const byGw=GEWERKE.map(g=>[g,matTotal(allMats().filter(x=>(x.gw||'Holzbau')===g))]).filter(x=>x[1]);let open=0;const gen={};
+  for(const x of S.belege){const br=belegBreakdown(x);if(br.hasItems){for(const k in br.gen)gen[k]=rnd2((gen[k]||0)+br.gen[k]);open+=br.open}else if(!S.pins.some(p=>pinBelegIds(p).includes(x.id)))open+=+x.amount||0}
+  return {b,m,w,wh,byGw,nb:S.belege.length,t:rnd2(b+m+w),gen,allg:gen.allg||0,open:rnd2(open)}}
 function costHtml(){const c=costTotals();
   return `<table class="tott"><tbody>
     <tr><td>🧾 Belege <small>(${c.nb})</small></td><td class="r">CHF ${chf(c.b)}</td></tr>
-    ${c.allg?`<tr class="sub"><td>davon Allg. Verbrauchsmaterial</td><td class="r">${chf(c.allg)}</td></tr>`:''}
+    ${GEN.map(g=>c.gen[g.k]?`<tr class="sub"><td>davon ${g.n}</td><td class="r">${chf(c.gen[g.k])}</td></tr>`:'').join('')}
     ${c.open?`<tr class="sub"><td><span class="bad">davon noch keinem Pin zugeordnet</span></td><td class="r bad">${chf(c.open)}</td></tr>`:''}
     <tr><td>🪵 Material${S.project.zOn?` <small>(Holzbau inkl. ${qfmt(zPct())} %)</small>`:''}</td><td class="r">CHF ${chf(c.m)}</td></tr>
     ${c.byGw.length>1?c.byGw.map(([g,v])=>`<tr class="sub"><td>${esc(g)}</td><td class="r">${chf(v)}</td></tr>`).join(''):''}
@@ -1639,10 +1643,10 @@ async function doPrint(){
     <h3>Totale nach Gewerk</h3><table><tbody>${[...GEWERKE,''].filter(g=>bs.some(b=>(b.gewerk||'')===g)).map(g=>`<tr><td>${g||'Ohne Gewerk'}</td><td style="text-align:right">${chf(bs.filter(b=>(b.gewerk||'')===g).reduce((s,b)=>s+(+b.amount||0),0))}</td></tr>`).join('')}</tbody></table>
     <h3>Totale nach Kategorie</h3><table><tbody>${CATS.filter(c=>bs.some(b=>b.category===c)).map(c=>`<tr><td>${c}</td><td style="text-align:right">${chf(bs.filter(b=>b.category===c).reduce((s,b)=>s+(+b.amount||0),0))}</td></tr>`).join('')}</tbody></table>
     <h3>Totale nach Jahr</h3><table><tbody>${[...new Set(bs.map(b=>(b.date||'').slice(0,4)))].sort().map(y=>`<tr><td>${y||'ohne Datum'}</td><td style="text-align:right">${chf(bs.filter(b=>(b.date||'').slice(0,4)===y).reduce((s,b)=>s+(+b.amount||0),0))}</td></tr>`).join('')}</tbody></table></section>`}
-  {const rows=[];let tot=0;for(const b of belegeSorted()){if(G&&b.gewerk!==G)continue;const br=belegBreakdown(b);if(!br.hasItems||!br.allg)continue;
-      br.items.filter(x=>x.k===ALLG).forEach(x=>rows.push(`<tr><td>${itemNo(b,(b.items||[]).indexOf(x.it))}</td><td>${fmtDate(b.date)}</td><td>${esc(b.supplier||'')}</td><td>${esc(x.it.name)}${x.it.qty?' · '+esc(x.it.qty):''}</td><td class="r">${chf(x.it.amount)}</td></tr>`));
-      if(br.restMap.get(ALLG))rows.push(`<tr><td>B-${pad(b.nr)}</td><td></td><td></td><td><i>Anteil Rest (MWST/Rundung/Rabatt)</i></td><td class="r">${chf(br.restMap.get(ALLG))}</td></tr>`);tot+=br.allg}
-    if(rows.length)h+=`<section class="msum"><h2>Allgemeines Verbrauchsmaterial</h2><table class="mt"><thead><tr><th>Pos.</th><th>Datum</th><th>Lieferant</th><th>Artikel</th><th class="r">CHF</th></tr></thead><tbody>${rows.join('')}<tr class="tot"><td colspan="4">Total Allg. Verbrauchsmaterial</td><td class="r">${chf(tot)}</td></tr></tbody></table></section>`}
+  for(const GK of GEN){const rows=[];let tot=0;for(const b of belegeSorted()){if(G&&b.gewerk!==G)continue;const br=belegBreakdown(b);if(!br.hasItems||!br.gen[GK.k])continue;
+      br.items.filter(x=>x.k===GK.k).forEach(x=>rows.push(`<tr><td>${itemNo(b,(b.items||[]).indexOf(x.it))}</td><td>${fmtDate(b.date)}</td><td>${esc(b.supplier||'')}</td><td>${esc(x.it.name)}${x.it.qty?' · '+esc(x.it.qty):''}</td><td class="r">${chf(x.it.amount)}</td></tr>`));
+      if(br.restMap.get(GK.k))rows.push(`<tr><td>B-${pad(b.nr)}</td><td></td><td></td><td><i>Anteil Rest (MWST/Rundung/Rabatt)</i></td><td class="r">${chf(br.restMap.get(GK.k))}</td></tr>`);tot+=br.gen[GK.k]}
+    if(rows.length)h+=`<section class="msum"><h2>${GK.h}</h2><table class="mt"><thead><tr><th>Pos.</th><th>Datum</th><th>Lieferant</th><th>Artikel</th><th class="r">CHF</th></tr></thead><tbody>${rows.join('')}<tr class="tot"><td colspan="4">Total ${GK.n}</td><td class="r">${chf(tot)}</td></tr></tbody></table></section>`}
   if(APP.work&&o.work&&!G&&S.work.length){const ws=workSorted(),tz=ws.some(w=>w.von||w.bis),yr=new Map(),rt=new Set(ws.map(workRate));
     for(const w of ws){const y=(w.date||'').slice(0,4)||'ohne Datum',a=yr.get(y)||[0,0];a[0]+=workHours(w);a[1]+=workCost(w);yr.set(y,a)}
     h+=`<section class="msum"><h2>Arbeitszeit</h2>${rt.size===1?`<p style="color:#666">Stundenansatz CHF ${chf([...rt][0])}</p>`:''}<table class="mt"><thead><tr><th>Datum</th>${tz?'<th>Von</th><th>Bis</th><th class="r">Pause</th>':''}<th>Bemerkung</th><th class="r">Std.</th>${rt.size>1?'<th class="r">Ansatz</th>':''}<th class="r">CHF</th></tr></thead><tbody>
