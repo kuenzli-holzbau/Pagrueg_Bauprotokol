@@ -286,6 +286,21 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .opb{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
 .opb .net{margin-left:auto;font-weight:700;font-size:15px;color:#0f766e}
 .mlr .mf{font-size:11px;color:#0f766e;white-space:nowrap}
+.zrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px}
+.zrow input[data-zpct]{width:60px;text-align:right}
+.pst{max-height:340px;overflow:auto;margin-top:8px}
+.pst table{min-width:0!important;font-size:12px}
+.pst td{padding:4px 6px}
+.sync.tot{color:#d9fbe5;border-color:#2f7a4a;font-weight:600}
+#totDlg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding:70px 16px}
+#totDlg[hidden]{display:none}
+.totbox{background:#fff;border-radius:12px;padding:20px;width:100%;max-width:420px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.tott{width:100%;border-collapse:collapse;font-size:15px}
+.tott td{padding:7px 4px;border-bottom:1px solid #eee}
+.tott td.r{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tott small{color:var(--mut);font-size:12px}
+.tott tr.sub td{font-size:12.5px;color:var(--mut);padding:3px 4px 3px 26px;border-bottom:0}
+.tott tr.all td{font-weight:800;font-size:17px;border-top:2px solid #1f2328;border-bottom:0;padding-top:10px}
 .autosave{font-size:11px;color:var(--mut);margin:-4px 0 8px}
 .efoot{display:flex;justify-content:flex-end;margin-top:12px}
 .mtot{text-align:right;font-weight:700;margin:2px 0 8px;font-size:13px}
@@ -419,6 +434,7 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
     <button data-act="tab" data-id="arbeit">Arbeitszeit</button>
     <button data-act="tab" data-id="export">Export &amp; Konto</button>
   </nav>
+  <button id="totBtn" class="sync tot" data-act="totals" title="Kostenübersicht: Belege, Material, Arbeitszeit">Σ <span id="totVal">–</span></button>
   <button id="syncBtn" class="sync" data-act="syncNow" hidden title="Jetzt synchronisieren"><i></i><span></span></button>
 </header>
 
@@ -442,6 +458,7 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 <input type="file" id="planInput" accept="image/*,application/pdf" data-up="plan" hidden>
 <div id="lb" hidden data-act="closeLb"><img alt=""></div>
 <div id="toast" hidden></div>
+<div id="totDlg" hidden data-act="totClose"><div class="totbox"><div id="totBody"></div><button class="b" data-act="totClose" style="margin-top:12px;width:100%">Schliessen</button></div></div>
 <div id="login" hidden><form id="lgForm" class="card"><h2>🏗️ Baustellenprotokoll</h2><p class="mut">Bitte mit deinem Konto anmelden. <small id="lgVer"></small></p>
   <label>E-Mail<input type="email" id="lgEmail" autocomplete="username" required></label>
   <label>Passwort<input type="password" id="lgPw" autocomplete="current-password" required></label>
@@ -477,7 +494,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='20 (15.10.2026, Fotos hineinziehen)';
+const APP_VERSION='22 (15.10.2026, Kostenübersicht)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -629,7 +646,15 @@ const pinBelegIds=p=>[...new Set(p.entries.flatMap(e=>e.belegIds))];
 const entryWithBeleg=(p,bid)=>p.entries.find(e=>e.belegIds.includes(bid));
 function curEntry(p){if(!p||UI.entry==='none')return null;let e=p.entries.find(x=>x.id===UI.entry);if(!e){e=lastEntry(p);UI.entry=e&&e.id}return e}
 const entBelegeGw=(e,g)=>e.belegIds.filter(id=>(e.belegGw[id]||'')===g).map(id=>S.belege.find(b=>b.id===id)).filter(Boolean);
-const matTotal=ms=>ms.reduce((s,m)=>s+(+m.qty||0)*(+m.price||0),0);
+/* Zuschlag auf den Preisstamm Holzbau (Regiepreisliste): in den Einstellungen ein-/ausschaltbar, gilt überall live */
+const zPct=()=>{const v=parseFloat(S.project.zPct);return isNaN(v)?50:v};
+const zFac=()=>S.project.zOn?1+zPct()/100:1;
+const rnd2=n=>Math.round(n*100)/100;
+const zApplies=m=>m.src==='Regiepreisliste';
+const mPrice=m=>m.price==null||m.price===''?m.price:(zApplies(m)?rnd2(+m.price*zFac()):+m.price);
+const katPrice=k=>k[3]==null?null:rnd2(k[3]*zFac());
+const zTag=m=>S.project.zOn&&zApplies(m)?` (inkl. ${qfmt(zPct())} % Zuschlag)`:'';
+const matTotal=ms=>ms.reduce((s,m)=>s+(+m.qty||0)*(+mPrice(m)||0),0);
 const entGewerke=e=>GEWERKE.filter(g=>e.gwText[g]||entBelegeGw(e,g).length||matsOf(e,g).length);
 const entTags=e=>GEWERKE.filter(g=>(e.tags||[]).includes(g)||entGewerke(e).includes(g));
 const pinGewerke=p=>GEWERKE.filter(g=>p.entries.some(e=>entTags(e).includes(g)));
@@ -765,7 +790,7 @@ async function renderPdfPage(doc,n,maxPx){const p=await doc.getPage(n);const v0=
 
 /* ---------- Rendering ---------- */
 if(!APP.work){const b=document.querySelector('[data-act="tab"][data-id="arbeit"]');if(b)b.remove()}
-function render(){
+function render(){updTotBtn();
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.id===UI.tab));
   document.querySelectorAll('.view').forEach(v=>v.hidden=v.id!=='v-'+UI.tab);
   $('#projName').value=S.project.name||'';$('#logo').title='Version '+APP_VERSION;
@@ -837,8 +862,8 @@ function entryEditor(p,e){
     return `<select data-ch="link" data-gw="${g}"><option value="">+ Beleg ${g?'für '+g+' ':''}zuordnen …</option>${own.length?`<optgroup label="${g}">${own.map(opt).join('')}</optgroup>`:''}${none.length?`<optgroup label="Ohne Gewerk">${none.map(opt).join('')}</optgroup>`:''}${oth.length?`<optgroup label="${g?'Andere Gewerke':'Mit Gewerk'}">${oth.map(opt).join('')}</optgroup>`:''}</select>`};
   const mats=g=>{const ls=matsOf(e,g),sup=supplierOf(g);return `<div class="mats"><div class="lbl" style="margin:2px 0 4px">Material${g==='Holzbau'?' aus Preisliste (netto)':' · Lieferant '+sup}</div>
     ${ls.map(([m,i])=>{const np=m.price==null||m.price==='';return `<div class="ml"><div class="mlh"><span>${esc(m.name)}</span><button data-act="rmMat" data-id="${i}" title="Material entfernen">×</button></div>
-      <small>${[m.code?esc(m.code):'',m.src&&m.src!=='Regiepreisliste'?esc(m.src):'',np?'kein Preis':'CHF '+chf(m.price)+' / '+esc(m.unit)].filter(Boolean).join(' · ')}${m.url?` · <a class="lk" href="${esc(m.url)}" target="_blank" rel="noopener">🔗 Shop</a>`:''}</small>
-      <div class="mlr">Menge <input data-mq="${i}" inputmode="decimal" value="${qfmt(m.qty)}" placeholder="0"> ${esc(m.unit)}${m.qtyAuto&&isM2(m.unit)&&matFactor(e,m)>1?` <span class="mf">(${qfmt(entM2(e))} m² × ${matFactor(e,m)})</span>`:''}${np?` · Preis CHF <input data-mp="${i}" inputmode="decimal" placeholder="0.00">`:''}<span class="lt">CHF ${chf((+m.qty||0)*(+m.price||0))}</span></div>
+      <small>${[m.code?esc(m.code):'',m.src&&m.src!=='Regiepreisliste'?esc(m.src):'',np?'kein Preis':'CHF '+chf(mPrice(m))+' / '+esc(m.unit)+zTag(m)].filter(Boolean).join(' · ')}${m.url?` · <a class="lk" href="${esc(m.url)}" target="_blank" rel="noopener">🔗 Shop</a>`:''}</small>
+      <div class="mlr">Menge <input data-mq="${i}" inputmode="decimal" value="${qfmt(m.qty)}" placeholder="0"> ${esc(m.unit)}${m.qtyAuto&&isM2(m.unit)&&matFactor(e,m)>1?` <span class="mf">(${qfmt(entM2(e))} m² × ${matFactor(e,m)})</span>`:''}${np?` · Preis CHF <input data-mp="${i}" inputmode="decimal" placeholder="0.00">`:''}<span class="lt">CHF ${chf((+m.qty||0)*(+mPrice(m)||0))}</span></div>
       <input class="mnote" data-mn="${i}" value="${esc(m.note||'')}" placeholder="Beschreibung, z.B. ${g==='Elektro'?'Steckdose Küche':'Beplankung Wand Nord'}"></div>`}).join('')}
     ${ls.length?`<div class="mtot">Total ${g}: CHF ${chf(matTotal(ls.map(x=>x[0])))}</div>`:''}
     ${UI.newArt===g?`<div class="naf"><div class="lbl">Neuer Artikel · ${esc(sup==='Regiepreisliste'?'eigener Artikel':sup)}</div>
@@ -972,7 +997,7 @@ function katSearch(q,g){const w=q.toLowerCase().split(/\s+/).filter(Boolean);if(
   for(const a of S.articles){const h=(a.code+' '+a.name+' '+(a.supplier||'')).toLowerCase();if(w.every(x=>h.includes(x)))r.push([score(h)+(a.gw===g?5:0)+3,'a',a])}
   if(g==='Holzbau')for(const k of KAT){const h=(k[0]+' '+k[1]).toLowerCase();if(w.every(x=>h.includes(x)))r.push([score(h),'k',k])}
   r.sort((a,b)=>b[0]-a[0]);const top=r.slice(0,40);
-  return top.length?top.map(([,t,k])=>t==='k'?`<div class="kr" data-act="addMat" data-id="${k[0]}" data-gw="${g}">${esc(k[1])}<small>${k[0]} · ${k[3]==null?'kein Preis':'CHF '+chf(k[3])} / ${esc(k[2])}</small></div>`
+  return top.length?top.map(([,t,k])=>t==='k'?`<div class="kr" data-act="addMat" data-id="${k[0]}" data-gw="${g}">${esc(k[1])}<small>${k[0]} · ${k[3]==null?'kein Preis':'CHF '+chf(katPrice(k))} / ${esc(k[2])}${S.project.zOn?' · inkl. '+qfmt(zPct())+' %':''}</small></div>`
     :`<div class="kr" data-act="addArt" data-id="${k.id}" data-gw="${g}">⭐ ${esc(k.name)}<small>${[k.code,k.supplier,k.price==null?'kein Preis':'CHF '+chf(k.price)+' / '+k.unit].filter(Boolean).map(esc).join(' · ')}</small></div>`).join('')
     :`<div class="kr mut">Nichts gefunden – ${g==='Holzbau'?'':'im Shop suchen oder '}«+ Neuer Artikel» verwenden.</div>`}
 /* ---------- Doppelte Belege erkennen ----------
@@ -999,6 +1024,24 @@ async function saveGwList(l){S.project.gewerke=l.map(x=>({n:x.n,c:x.c}));await d
 async function applyGwMap(MAP){for(const x of S.pins)if(renameGw(x,MAP))await dbPut('pins',x);for(const x of S.belege)if(renameGw(x,MAP))await dbPut('belege',x);for(const x of S.articles)if(renameGw(x,MAP))await dbPut('articles',x);
   for(const k of ['gf','pf','fg'])if(MAP[UI[k]]!==undefined)UI[k]=MAP[UI[k]];if(UI.bfl&&MAP[UI.bfl.gw]!==undefined)UI.bfl.gw=MAP[UI.bfl.gw];if(MAP[UI.opts.gw]!==undefined)UI.opts.gw=MAP[UI.opts.gw]}
 const gwPalette=['#0891b2','#65a30d','#ea580c','#7c3aed','#be123c','#0f766e','#a16207','#4338ca','#15803d','#b91c1c'];
+function pstList(){const w=String(UI.pstQ||'').toLowerCase().split(/\s+/).filter(Boolean);
+  const L=w.length?KAT.filter(k=>{const h=(k[0]+' '+k[1]).toLowerCase();return w.every(x=>h.includes(x))}):KAT,N=UI.pstN||60,sh=L.slice(0,N);
+  return `<div class="tw pst"><table class="bt"><thead><tr><th>Art.-Nr.</th><th>Bezeichnung</th><th>Einh.</th><th class="r">Netto</th>${S.project.zOn?`<th class="r">+${qfmt(zPct())} %</th>`:''}</tr></thead><tbody>
+    ${sh.map(k=>`<tr><td class="mut" style="white-space:nowrap">${k[0]}</td><td>${esc(k[1])}</td><td>${esc(k[2])}</td><td class="r">${k[3]==null?'–':chf(k[3])}</td>${S.project.zOn?`<td class="r"><b>${k[3]==null?'–':chf(katPrice(k))}</b></td>`:''}</tr>`).join('')}</tbody></table></div>
+    <p class="mut" style="font-size:12px;margin:6px 0 0">${L.length?`${sh.length} von ${L.length} Artikel${L.length>sh.length?` · <a data-act="pstMore">weitere anzeigen</a>`:''}`:'Kein Artikel gefunden.'}</p>`}
+/* ---------- Kostenübersicht (Kopfzeile Σ und Reiter Export) ---------- */
+function costTotals(){const b=S.belege.reduce((x,y)=>x+(+y.amount||0),0),m=matTotal(allMats()),w=APP.work?sumC(S.work):0,wh=APP.work?sumH(S.work):0;
+  const byGw=GEWERKE.map(g=>[g,matTotal(allMats().filter(x=>(x.gw||'Holzbau')===g))]).filter(x=>x[1]);
+  return {b,m,w,wh,byGw,nb:S.belege.length,t:rnd2(b+m+w)}}
+function costHtml(){const c=costTotals();
+  return `<table class="tott"><tbody>
+    <tr><td>🧾 Belege <small>(${c.nb})</small></td><td class="r">CHF ${chf(c.b)}</td></tr>
+    <tr><td>🪵 Material${S.project.zOn?` <small>(Holzbau inkl. ${qfmt(zPct())} %)</small>`:''}</td><td class="r">CHF ${chf(c.m)}</td></tr>
+    ${c.byGw.length>1?c.byGw.map(([g,v])=>`<tr class="sub"><td>${esc(g)}</td><td class="r">${chf(v)}</td></tr>`).join(''):''}
+    ${APP.work?`<tr><td>⏱ Arbeitszeit <small>(${hfmt(c.wh)})</small></td><td class="r">CHF ${chf(c.w)}</td></tr>`:''}
+    <tr class="all"><td>Total</td><td class="r">CHF ${chf(c.t)}</td></tr></tbody></table>`}
+function updTotBtn(){const v=$('#totVal');if(v)v.textContent='CHF '+chf(costTotals().t)}
+setInterval(()=>{if(!document.hidden)updTotBtn()},3000);
 function filteredBelege(){const q=UI.q.trim().toLowerCase();
   const dm=UI.fd?dupMap():null;
   const F=UI.bfl,lc=x=>String(x||'').toLowerCase(),has=(v,f)=>!f||lc(v).includes(lc(f).trim());
@@ -1051,7 +1094,7 @@ function renderBelege(){
 }
 function renderExport(){
   const P=S.project,o=UI.opts;
-  $('#v-export').innerHTML=`<div class="card"><h2>Protokoll als PDF</h2>
+  $('#v-export').innerHTML=`<div class="card"><h2>Kostenübersicht</h2>${costHtml()}</div><div class="card"><h2>Protokoll als PDF</h2>
    <label>Titel<input data-pf="name" value="${esc(P.name)}"></label>
    <label>Baustelle / Adresse<input data-pf="address" value="${esc(P.address)}"></label>
    <label>Verfasser / Bauherr<input data-pf="author" value="${esc(P.author)}"></label>
@@ -1071,6 +1114,11 @@ function renderExport(){
    <p class="mut" id="cloudInfo">${esc(syncText())}</p>
    <p><button class="b p" data-act="syncNow">Jetzt synchronisieren</button> <button class="b" data-act="logout">Abmelden</button></p>
    <p class="mut" style="font-size:12px">Alle Änderungen werden zuerst auf diesem Gerät gespeichert und automatisch hochgeladen, sobald eine Internetverbindung besteht. Neue Benutzer legst du im Supabase-Dashboard an.</p></div>`:''}
+   <div class="card"><h2>Preisstamm Holzbau</h2><p class="mut" style="font-size:13px">Regiepreisliste S-0113 (${KAT.length} Artikel, Netto-Einkaufspreise). Der Zuschlag gilt sofort überall: Material in den Pins, Totale und PDF.</p>
+   <div class="zrow"><label class="ck" style="margin:0"><input type="checkbox" data-zon ${S.project.zOn?'checked':''}> Zuschlag</label><input data-zpct inputmode="decimal" value="${qfmt(zPct())}"> %
+     <span class="mut" style="font-size:12px">${S.project.zOn?'aktiv – Preise × '+qfmt(zFac()):'aus – Netto-Preise'}</span></div>
+   <input id="pstQ" data-pstq placeholder="🔍 Artikel suchen, z.B. OSB 18 oder 101.149" value="${esc(UI.pstQ||'')}" style="width:100%;margin-top:10px">
+   <div id="pstList">${pstList()}</div></div>
    <div class="card"><h2>Gewerke</h2><p class="mut" style="font-size:13px">Eigene Gewerke anlegen, umbenennen, Farbe wählen und Reihenfolge ändern. Umbenennen passt alle bestehenden Einträge und Belege mit an.</p>
    <div class="gwl">${gwList().map((g,i,a)=>`<div class="gwr"><input type="color" data-gwc="${i}" value="${g.c}" title="Farbe"><input data-gwn="${i}" value="${esc(g.n)}" ${g.n==='Holzbau'?'readonly title="Holzbau ist fest (Material/Preisliste)"':''}>
      <span class="gwu">${gwUse(g.n)||''}</span><button class="b sm" data-act="gwMove" data-id="${i}" data-dir="-1" ${i?'':'disabled'}>▲</button><button class="b sm" data-act="gwMove" data-id="${i}" data-dir="1" ${i<a.length-1?'':'disabled'}>▼</button>
@@ -1245,6 +1293,9 @@ const ACT={
     if(!confirm(`Bei ${L.length} Beleg(en) das Material aus dem Beleg auslesen und als Beschreibung eintragen?\n\nFotos brauchen je ca. 5–20 Sekunden. Bereits von Hand geschriebene Beschreibungen bleiben unverändert.`))return;
     let n=0,ok=0;for(const b of L){n++;toast(`Material auslesen: ${n} von ${L.length} …`,60000);if(await recognizeBeleg(b,true)&&b.auto&&b.auto.desc)ok++;if(UI.tab==='belege')renderBelege()}
     toast(`✓ Fertig: bei ${ok} von ${L.length} Belegen Material eingetragen – gelb markiert, bitte kurz kontrollieren`,7000)},
+  pstMore:()=>{UI.pstN=(UI.pstN||60)+200;const l=$('#pstList');if(l)l.innerHTML=pstList()},
+  totals:()=>{$('#totBody').innerHTML=`<h2 style="margin:0 0 10px">Kostenübersicht</h2>${costHtml()}`;$('#totDlg').hidden=false;updTotBtn()},
+  totClose:(id,a,e)=>{if(e&&e.target.closest('.totbox')&&!e.target.closest('[data-act="totClose"].b'))return;$('#totDlg').hidden=true},
   gwAdd:async()=>{const i=$('#gwNew'),n=(i.value||'').trim();if(!n)return i.focus();const l=gwList().map(x=>({...x}));
     if(l.some(x=>x.n.toLowerCase()===n.toLowerCase())){toast('Dieses Gewerk gibt es schon',3000);return}
     l.push({n,c:gwPalette.find(c=>!l.some(x=>x.c===c))||'#6b7280'});await saveGwList(l);renderExport();toast(`Gewerk «${n}» angelegt`)},
@@ -1310,6 +1361,8 @@ document.addEventListener('change',async e=>{const t=e.target,d=t.dataset;
     if(d.gwc!==undefined){g.c=t.value;await saveGwList(l);return}
     const n=t.value.trim();if(n===g.n)return;if(!n||l.some((x,k)=>k!==i&&x.n.toLowerCase()===n.toLowerCase())){toast(n?'Dieses Gewerk gibt es schon':'Name darf nicht leer sein',3000);t.value=g.n;return}
     const old=g.n;g.n=n;await applyGwMap({[old]:n});await saveGwList(l);renderExport();toast(`«${old}» umbenannt in «${n}» – bestehende Einträge angepasst`,4000);return}
+  if(d.zon!==undefined||d.zpct!==undefined){if(d.zon!==undefined)S.project.zOn=t.checked;else{const v=parseAmount(t.value);S.project.zPct=v===''?50:v}
+    await dbPut('kv',S.project);renderExport();toast(S.project.zOn?`Zuschlag ${qfmt(zPct())} % aktiv – alle Holzbau-Preise angepasst`:'Zuschlag aus – Netto-Preise',3500);return}
   if(d.opt){UI.opts[d.opt]=t.checked;return}
   if(d.room){const f=curFloor(),r=f&&(f.rooms||[]).find(x=>x.id===d.room);if(!r||!t.value.trim())return renderPlan();r.name=t.value.trim();await dbPut('floors',f);renderStage();renderPinPanel();return}
   if(d.bld){const b=bldById(d.bld);if(!b||!t.value.trim())return renderPlan();b.name=t.value.trim();await dbPut('buildings',b);renderFloorList();renderStage();return}
@@ -1346,6 +1399,7 @@ function clearDrop(){document.querySelectorAll('.dropon').forEach(x=>x.classList
 })();
 let bflT=null;
 document.addEventListener('input',e=>{const t=e.target;
+  if(t.dataset.pstq!==undefined){UI.pstQ=t.value;UI.pstN=60;const l=$('#pstList');if(l)l.innerHTML=pstList();return}
   if(t.dataset.bfl!==undefined&&t.tagName==='INPUT'){UI.bfl[t.dataset.bfl]=t.value;clearTimeout(bflT);bflT=setTimeout(()=>{const k=t.dataset.bfl,pos=t.selectionStart;renderBelege();
       const n=document.querySelector(`[data-bfl="${k}"]`);if(n){n.focus();try{n.setSelectionRange(pos,pos)}catch(_){}}},300);return}
   if(t.dataset.mn!==undefined){const p=pinById(UI.pin),en=curEntry(p);if(!en)return;touch('pins',p.id);const m=en.mats[+t.dataset.mn];if(!m)return;m.note=t.value;clearTimeout(saveTimers[p.id]);saveTimers[p.id]=setTimeout(()=>dbPut('pins',p),400);return}
@@ -1416,7 +1470,7 @@ $('#stage').addEventListener('wheel',e=>{if(!e.ctrlKey||!$('#stage .plan'))retur
 /* ---------- PDF-Export ---------- */
 const allMats=()=>S.pins.flatMap(p=>p.entries.flatMap(e=>e.mats));
 function matTable(ms,code){return `<table class="mt"><thead><tr>${code?'<th>Art.-Nr.</th>':''}<th>Material</th><th class="r">Menge</th><th>Einh.</th><th class="r">CHF/Einh.</th><th class="r">CHF</th></tr></thead><tbody>
-  ${ms.map(m=>`<tr>${code?`<td>${esc(m.code||'–')}</td>`:''}<td>${esc(m.name)}${m.note&&!code?`<br><i style="color:#555">${esc(m.note)}</i>`:''}</td><td class="r">${qfmt(m.qty)}</td><td>${esc(m.unit)}</td><td class="r">${m.price==null?'':chf(m.price)}</td><td class="r">${chf((+m.qty||0)*(+m.price||0))}</td></tr>`).join('')}
+  ${ms.map(m=>`<tr>${code?`<td>${esc(m.code||'–')}</td>`:''}<td>${esc(m.name)}${m.note&&!code?`<br><i style="color:#555">${esc(m.note)}</i>`:''}</td><td class="r">${qfmt(m.qty)}</td><td>${esc(m.unit)}</td><td class="r">${m.price==null?'':chf(mPrice(m))}</td><td class="r">${chf((+m.qty||0)*(+mPrice(m)||0))}</td></tr>`).join('')}
   <tr class="tot"><td colspan="${code?5:4}">Total</td><td class="r">${chf(matTotal(ms))}</td></tr></tbody></table>`}
 async function doPrint(){
   const missing=S.blobs.filter(b=>!b.blob).length;if(missing&&!confirm(`${missing} Foto(s)/Beleg(e) sind noch nicht auf dieses Gerät geladen und würden im PDF fehlen. Trotzdem fortfahren?`))return;
@@ -1460,7 +1514,7 @@ async function doPrint(){
       <tr class="tot"><td colspan="3">Total Pins</td><td class="r">${chf(tb)}</td><td class="r">${tm?chf(tm):''}</td><td class="r">${chf(tb+tm)}</td></tr></tbody></table>
       ${ohne.length?`<h3>Belege ohne Pin-Zuordnung</h3><table class="mt"><tbody>${ohne.map(b=>`<tr><td>B-${pad(b.nr)}</td><td>${fmtDate(b.date)}</td><td>${esc(b.supplier)}</td><td>${esc(b.desc)}</td><td class="r">${b.amount===''?'':chf(b.amount)}</td></tr>`).join('')}<tr class="tot"><td colspan="4">Total ohne Pin</td><td class="r">${chf(to)}</td></tr></tbody></table>`:''}</section>`}
   if(o.mats&&allMats().length&&(!o.gw||o.gw==='Holzbau')){const all=allMats();
-    h+=`<section class="msum"><h2>Materialbezug</h2><p style="color:#666">Summe aller Einträge pro Gewerk. Holzbau: Netto-Einkaufspreise gemäss Regiepreisliste S-0113; übrige Gewerke: erfasste Preise der Lieferanten.</p>`;
+    h+=`<section class="msum"><h2>Materialbezug</h2><p style="color:#666">Summe aller Einträge pro Gewerk. Holzbau: Netto-Einkaufspreise gemäss Regiepreisliste S-0113${S.project.zOn?` zuzüglich ${qfmt(zPct())} % Zuschlag`:''}; übrige Gewerke: erfasste Preise der Lieferanten.</p>`;
     for(const g of GEWERKE){const ms=all.filter(m=>(m.gw||'Holzbau')===g);if(!ms.length)continue;const agg=new Map();
       for(const m of ms){const k=[m.code,m.name,m.unit,m.price].join('|');const a=agg.get(k)||Object.assign({},m,{qty:0,note:''});a.qty+=(+m.qty||0);agg.set(k,a)}
       const rows=[...agg.values()].sort((a,b)=>(a.code||'zzz').localeCompare(b.code||'zzz')||a.name.localeCompare(b.name));
