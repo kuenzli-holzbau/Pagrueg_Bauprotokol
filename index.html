@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Baustellenprotokoll</title>
-<meta name="theme-color" content="#1f2328">
+<title>Baustellenprotokoll 2</title>
+<meta name="theme-color" content="#0f766e">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
@@ -456,13 +456,13 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
    dem Gerät denselben Speicher bzw. in Supabase dieselben Daten.
    ====================================================================== */
 const APP={
-  id:'bp',                      // Kurzkennung: Schlüssel im Browser-Speicher
-  db:'baustellenprotokoll',     // Name der lokalen Datenbank (IndexedDB)
-  table:'items',                // Supabase-Tabelle
-  bucket:'files',               // Supabase-Speicher für Fotos/Pläne/Belege
-  title:'Baustellenprotokoll',  // Standardname
-  dates:true,                   // Datum bei den Einträgen (Fortschritten)
-  work:false                    // Reiter «Arbeitszeit»
+  id:'bp2',                     // Kurzkennung: Schlüssel im Browser-Speicher
+  db:'baustellenprotokoll-2',   // Name der lokalen Datenbank (IndexedDB)
+  table:'items_2',              // Supabase-Tabelle
+  bucket:'files_2',             // Supabase-Speicher für Fotos/Pläne/Belege
+  title:'Baustellenprotokoll 2', // Standardname
+  dates:false,                  // Datum bei den Einträgen (Fortschritten)
+  work:true                     // Reiter «Arbeitszeit»
 };
 /* ---------- Hilfsfunktionen ---------- */
 const $=s=>document.querySelector(s);
@@ -477,7 +477,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='17 (15.10.2026, Fotos hineinziehen)';
+const APP_VERSION='20 (15.10.2026, Fotos hineinziehen)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
