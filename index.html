@@ -92,7 +92,7 @@ textarea{resize:vertical}
 .side select{width:100%;padding:7px;border:1px solid var(--line);border-radius:7px;background:#fff}
 
 /* Belege */
-#v-belege{padding:16px 20px;max-width:1300px;margin:0 auto}
+#v-belege{padding:16px 20px;max-width:none;margin:0}
 .bbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
 .bbar select,.bbar input[type=search]{padding:6px 9px;border:1px solid var(--line);border-radius:7px;background:#fff}
 .bbar label{margin:0}
@@ -123,9 +123,11 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .bt textarea.auto{background:#fef9c3!important;border-color:#eab308!important}
 .bt input.auto{background:#fef9c3!important;border-color:#eab308!important}
 .bt .ra{display:flex;gap:4px}
-.spl div{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+.spl{display:flex;flex-wrap:wrap;gap:3px 10px;align-items:center}
+.spl div{display:flex;align-items:center;gap:4px}
+.spl small{flex-basis:100%}
 .spl .spi{width:84px!important;text-align:right;padding:4px 6px!important;border:1px solid var(--line)!important;background:#fff!important;border-radius:5px}
-.spl small{display:block;font-size:11px}
+.spl small{display:block;font-size:11px;flex-basis:100%}
 .spl small.bad{color:#b91c1c;font-weight:600}
 .bt input,.bt select{width:100%;border:1px solid transparent;background:transparent;padding:5px 6px;border-radius:5px}
 .bt input:hover,.bt select:hover,.bt input:focus{border-color:var(--line);background:#fff;outline:none}
@@ -133,7 +135,7 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .bth{width:48px;height:48px;border-radius:6px;overflow:hidden;background:#eee;position:relative;cursor:pointer}
 .bth img{width:100%;height:100%;object-fit:cover}
 .tag{position:absolute;bottom:2px;left:2px;background:#b91c1c;color:#fff;font-size:9px;font-weight:700;padding:0 4px;border-radius:3px}
-.pb{display:inline-block;background:var(--acc);color:#fff;border-radius:10px;padding:0 7px;font-size:11px;cursor:pointer;margin:1px 0;white-space:nowrap}
+.pb{display:inline-block;margin-right:3px!important;background:var(--acc);color:#fff;border-radius:10px;padding:0 7px;font-size:11px;cursor:pointer;margin:1px 0;white-space:nowrap}
 
 /* Export */
 #v-export{padding:24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px;max-width:1000px;margin:0 auto;align-items:start}
@@ -239,8 +241,8 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .stleg{position:absolute;left:10px;bottom:10px;z-index:5;background:rgba(255,255,255,.92);border-radius:8px;padding:5px 10px;box-shadow:0 1px 4px rgba(0,0,0,.12)}
 .stleg .pleg{margin:0}
 .gfsel{font-weight:600}
-#v-fotos{padding:14px 18px;max-width:1400px;margin:0 auto}
-#v-arbeit{padding:16px 20px;max-width:1100px;margin:0 auto}
+#v-fotos{padding:14px 18px;max-width:none;margin:0}
+#v-arbeit{padding:16px 20px;max-width:none;margin:0}
 .wt input.tm{width:70px;text-align:center}
 .wt input.nm{text-align:right}
 .wt td.wb{font-weight:600;white-space:nowrap}
@@ -533,7 +535,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='31 (16.10.2026, Positionen dem Beleg folgen lassen)';
+const APP_VERSION='32 (16.10.2026, volle Bildschirmbreite)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -1246,7 +1248,7 @@ function renderBelege(){
     ${bfActive()?'<button class="b" data-act="bfReset">✕ Filter zurücksetzen</button>':''}
     <span class="sp"></span><span class="sum">${list.length} Beleg(e) · Total CHF <b>${chf(sum)}</b></span></div>
     <div class="drop" id="drop">Fotos oder PDFs von Belegen hierher ziehen – oder oben «+ Fotos / PDFs»</div>
-    ${S.belege.length?`<div class="tw"><table class="bt"><thead><tr><th></th>${bth('nr','Nr.')}${bth('date','Datum','width:140px')}${bth('sup','Lieferant / Firma')}${bth('desc','Beschreibung')}${bth('cat','Kategorie','width:140px')}${bth('gw','Gewerk','width:120px')}${bth('amt','Betrag CHF','width:110px;text-align:right')}${bth('pins','Pins','width:190px')}<th></th></tr>
+    ${S.belege.length?`<div class="tw"><table class="bt"><thead><tr><th></th>${bth('nr','Nr.','width:90px')}${bth('date','Datum','width:140px')}${bth('sup','Lieferant / Firma')}${bth('desc','Beschreibung')}${bth('cat','Kategorie','width:140px')}${bth('gw','Gewerk','width:120px')}${bth('amt','Betrag CHF','width:110px;text-align:right')}${bth('pins','Pins','width:26%')}<th></th></tr>
     <tr class="flt"><th></th><th><input data-bfl="nr" value="${esc(UI.bfl.nr)}" placeholder="Filter"></th><th><input data-bfl="date" value="${esc(UI.bfl.date)}" placeholder="z.B. 2022 / 03.2022"></th>
       <th><input data-bfl="sup" value="${esc(UI.bfl.sup)}" placeholder="Filter"></th><th><input data-bfl="desc" value="${esc(UI.bfl.desc)}" placeholder="Filter"></th>
       <th><select data-bfl="cat"><option value="">Alle</option>${CATS.map(c=>`<option ${UI.bfl.cat===c?'selected':''}>${c}</option>`).join('')}</select></th>
