@@ -543,7 +543,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='33 (18.10.2026, Fotos in anderen Pin verschieben)';
+const APP_VERSION='34 (18.10.2026, mehrseitige PDF-Belege vollständig)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -896,14 +896,14 @@ async function ocrPrep(blob){try{const bm=await createImageBitmap(blob);const sc
 async function ocrImage(blob){const T=await tesseractLib();if(!ocrWorker){ocrWorker=await T.createWorker('deu');try{await ocrWorker.setParameters({tessedit_pageseg_mode:'6',preserve_interword_spaces:'1'})}catch(_){}}
   const r=await ocrWorker.recognize(await ocrPrep(blob));return (r&&r.data&&r.data.text)||''}
 async function pdfText(blob){const doc=await openPdf(blob);let out=[];
-  for(let i=1;i<=Math.min(doc.numPages,3);i++){const pg=await doc.getPage(i);const c=await pg.getTextContent();const rows=[];
+  for(let i=1;i<=Math.min(doc.numPages,60);i++){const pg=await doc.getPage(i);const c=await pg.getTextContent();const rows=[];
     for(const it of c.items){if(!it.str||!it.str.trim())continue;const y=it.transform[5],x=it.transform[4];let r=rows.find(r=>Math.abs(r.y-y)<3);if(!r){r={y,items:[]};rows.push(r)}r.items.push({x,s:it.str})}
     rows.sort((a,b)=>b.y-a.y);for(const r of rows)out.push(r.items.sort((a,b)=>a.x-b.x).map(i=>i.s).join(' '))}
   return out.join('\n')}
 async function recognizeBeleg(b,quiet){
   const file=blobMap.get(b.fileId),prev=blobMap.get(b.previewId);if(!file||!file.blob){if(!quiet)toast('Beleg ist noch nicht auf dieses Gerät geladen.');return false}
   let text='';
-  try{if(file.mime==='application/pdf'){text=await pdfText(file.blob);if(text.replace(/\s/g,'').length<40&&prev&&prev.blob){toast(`B-${pad(b.nr)}: gescanntes PDF – Texterkennung läuft …`,60000);text=await ocrImage(prev.blob)}}
+  try{if(file.mime==='application/pdf'){text=await pdfText(file.blob);if(text.replace(/\s/g,'').length<40*1){const doc=await openPdf(file.blob),n=Math.min(doc.numPages,60);let t=[];for(let i=1;i<=n;i++){toast(`B-${pad(b.nr)}: gescanntes PDF – Texterkennung Seite ${i} von ${n} …`,60000);t.push(await ocrImage(await renderPdfPage(doc,i,2200)))}text=t.join('\n')}}
     else{toast(`B-${pad(b.nr)}: Texterkennung läuft … (beim ersten Mal ca. 10–20 s)`,60000);text=await ocrImage(file.blob)}}
   catch(e){console.warn(e);toast('Automatisches Lesen nicht möglich: '+e.message,6000);return false}
   const r=parseReceipt(text);b.auto=b.auto||{};const got=[];
@@ -1797,8 +1797,14 @@ async function doPrint(){
     h+=`<section class="msum"><h2>Gesamtbetrag Projekt${G?' – Gewerk '+esc(G):''}</h2><table class="mt" style="font-size:11pt"><tbody>
     <tr><td>Belege</td><td class="r">CHF ${chf(bT)}</td></tr>${mT?`<tr><td>Material (erfasste Mengen, Netto-Preise)</td><td class="r">CHF ${chf(mT)}</td></tr>`:''}${wH?`<tr><td>Arbeitszeit (${hfmt(wH)})</td><td class="r">CHF ${chf(wT)}</td></tr>`:''}
     <tr class="tot"><td>Gesamtbetrag</td><td class="r">CHF ${chf(bT+mT+wT)}</td></tr></tbody></table></section>`}
-  if(o.att)for(const b of bs){if(!b.previewId)continue;const pg=(blobMap.get(b.previewId)||{}).pages;
-    h+=`<section class="att"><h3>B-${pad(b.nr)} · ${fmtDate(b.date)} · ${esc(b.supplier||b.desc)}${b.amount!==''?' · CHF '+chf(b.amount):''}${pg>1?` <span style="font-weight:400;color:#666">(Seite 1 von ${pg})</span>`:''}</h3><img src="${urlOf(b.previewId)}" alt=""></section>`}
+  if(o.att){const tmpUrls=[];window._attUrls=(window._attUrls||[]).concat(tmpUrls);let k=0;
+    for(const b of bs){const f=blobMap.get(b.fileId),isPdf=f&&f.mime==='application/pdf'&&f.blob;if(!b.previewId&&!isPdf)continue;k++;let pages=b.previewId?[urlOf(b.previewId)]:[];
+      if(f&&f.mime==='application/pdf'&&f.blob){try{const doc=await openPdf(f.blob);if(doc.numPages>1||!b.previewId){pages=[];for(let i=1;i<=doc.numPages;i++){toast(`PDF wird erstellt – Beleg B-${pad(b.nr)}, Seite ${i} von ${doc.numPages} …`,60000);const u=URL.createObjectURL(await renderPdfPage(doc,i,1700));tmpUrls.push(u);pages.push(u)}}}catch(e){console.warn(e)}}
+      else{const pg=(blobMap.get(b.previewId)||{}).pages;if(pg>1)pages.missing=pg}
+      const head=`B-${pad(b.nr)} · ${fmtDate(b.date)} · ${esc(b.supplier||b.desc)}${b.amount!==''?' · CHF '+chf(b.amount):''}`;
+      pages.forEach((u,i)=>{h+=`<section class="att"><h3>${head}${pages.length>1?` <span style="font-weight:400;color:#666">(Seite ${i+1} von ${pages.length})</span>`:''}</h3><img src="${u}" alt=""></section>`});
+      if(pages.missing)h+=`<p style="color:#b91c1c">B-${pad(b.nr)}: Seiten 2–${pages.missing} sind auf diesem Gerät noch nicht geladen – bitte zuerst synchronisieren.</p>`}
+    window._attUrls=tmpUrls}
   const pr=$('#print');pr.innerHTML=h;
   await Promise.all([...pr.querySelectorAll('img')].map(i=>i.complete?0:new Promise(r=>{i.onload=i.onerror=r})));
   $('#toast').hidden=true;const old=document.title;document.title=P.name||'Baustellenprotokoll';
