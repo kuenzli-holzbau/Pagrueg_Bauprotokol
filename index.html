@@ -331,7 +331,15 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .asgbar .b{background:#fff;color:#0f766e;border-color:#fff}
 .pin.asg{box-shadow:0 0 0 4px #0f766e,0 0 0 7px rgba(15,118,110,.3)!important;transform:scale(1.15);z-index:4}
 .pin.asg::after{content:'✓';position:absolute;right:-9px;top:-9px;width:16px;height:16px;border-radius:50%;background:#0f766e;color:#fff;font-size:10px;line-height:16px}
-.pin.asgoff{opacity:.75}
+.pin.asgoff{opacity:.85}
+.pin.asgsrc{opacity:.35;outline:2px dashed #555}
+.fhd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.fhd .b{font-size:11.5px;padding:3px 8px}
+.fsel{display:inline-flex;gap:4px;margin-left:auto}
+.th.selm img{opacity:.75}
+.th.sel{outline:3px solid #0f766e;outline-offset:-3px}
+.th .thck{position:absolute;right:4px;bottom:28px;width:22px;height:22px;border-radius:50%;background:#fff;border:2px solid #0f766e;color:#0f766e;font:700 13px/18px sans-serif;text-align:center;pointer-events:none}
+.th.sel .thck{background:#0f766e;color:#fff}
 .asgp h3{margin:2px 0 6px;font-size:16px}
 .asgp p{font-size:13.5px}
 .asgt{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0}
@@ -535,7 +543,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='32 (16.10.2026, volle Bildschirmbreite)';
+const APP_VERSION='33 (18.10.2026, Fotos in anderen Pin verschieben)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -934,7 +942,7 @@ function renderFloorList(){
 }
 function renderStage(){
   const f=curFloor(),bar=$('#planBar'),st=$('#stage');
-  {const ab=$('#asgBar'),b=asgBeleg();if(ab){ab.hidden=!b;if(b){const a=UI.assign,it=a.ii!=null?(b.items||[])[a.ii]:null;
+  {const ab=$('#asgBar'),b=asgBeleg(),ph=asgPhotos();if(ab&&ph){ab.hidden=false;ab.innerHTML=`<span>📷 <b>${ph.ids.length} Foto(s)</b> verschieben: Ziel-Pin antippen</span><button class="b sm" data-act="asgDone">Abbrechen</button>`}else if(ab){ab.hidden=!b;if(b){const a=UI.assign,it=a.ii!=null?(b.items||[])[a.ii]:null;
     ab.innerHTML=`<span>📍 ${it?`Position <b>${itemNo(b,a.ii)} ${esc(it.name||'')}</b>: Pin antippen`:`Beleg <b>${esc(belegLabel(b))}</b>: Pins antippen`}</span><button class="b sm" data-act="asgDone">${it?'Abbrechen':'✓ Fertig'}</button>`}}}
   if(!f){bar.innerHTML='<span class="mut">Kein Plan ausgewählt</span>';st.innerHTML=`<div class="empty"><h3>Willkommen</h3><p>Beginne mit dem <b>Situationsplan</b>: Darauf umrandest du das Haus und gelangst mit einem Tipp zu dessen Grundrissen. Du kannst auch direkt ein Geschoss anlegen.</p><p><button class="b p" data-act="addSite">+ Situationsplan</button> <button class="b" data-act="addFloor">+ Geschoss</button></p></div>`;return}
   const site=isSite(f),drawing=!!UI.draw,isRoom=drawing&&UI.draw.kind==='room';
@@ -957,14 +965,22 @@ function renderStage(){
   if(!f.planId){st.innerHTML=`<div class="empty"><p>Für «${esc(f.name)}» ist noch kein Plan hinterlegt.</p><button class="b p" data-act="planUp">Plan hochladen (Bild oder PDF)</button></div>`;return}
   const dpts=isRoom&&UI.draw.pts.length===2?rectPts(UI.draw.pts):UI.draw?UI.draw.pts:[];
   const dr=drawing&&UI.draw.pts.length?`<svg class="areas" viewBox="0 0 1000 1000" preserveAspectRatio="none"><polygon class="dr" points="${ptsStr(dpts)}"/></svg>${UI.draw.pts.map(([x,y])=>`<span class="dot" style="left:${x*100}%;top:${y*100}%"></span>`).join('')}`:'';
-  st.innerHTML=`<div class="plan ${UI.add||drawing?'adding':''}" style="width:${UI.zoom*100}%"><img src="${urlOf(f.planId)}" alt="Plan" draggable="false">${areasHtml(f)}${dr}${pinsOf(f.id).map(p=>{const hit=UI.gf&&pinGewerke(p).includes(UI.gf);return `<div class="pin ${pinState(p)} ${UI.assign?(asgIsOn(p)?'asg':'asgoff'):''} ${p.id===UI.pin?'on':''} ${UI.gf?(hit?'hit':'dim'):''}" data-pin="${p.id}" style="left:${p.x*100}%;top:${p.y*100}%;${hit?'--c:'+GWC[UI.gf]:''}" title="${esc(p.title)}${p.title?' – ':''}${PIN_STATE_TXT[pinState(p)]}">${p.nr}${pinLbl(p)}</div>`}).join('')}</div>`;
+  st.innerHTML=`<div class="plan ${UI.add||drawing?'adding':''}" style="width:${UI.zoom*100}%"><img src="${urlOf(f.planId)}" alt="Plan" draggable="false">${areasHtml(f)}${dr}${pinsOf(f.id).map(p=>{const hit=UI.gf&&pinGewerke(p).includes(UI.gf);return `<div class="pin ${pinState(p)} ${UI.assign?(asgPhotos()&&asgPhotos().from===p.id?'asgsrc':(asgIsOn(p)?'asg':'asgoff')):''} ${p.id===UI.pin?'on':''} ${UI.gf?(hit?'hit':'dim'):''}" data-pin="${p.id}" style="left:${p.x*100}%;top:${p.y*100}%;${hit?'--c:'+GWC[UI.gf]:''}" title="${esc(p.title)}${p.title?' – ':''}${PIN_STATE_TXT[pinState(p)]}">${p.nr}${pinLbl(p)}</div>`}).join('')}</div>`;
 }
 /* ---------- Beleg im Grundriss zuordnen ----------
    UI.assign={bid} : Pins antippen = Beleg zuordnen/entfernen (mehrere, Aufteilung nach Fläche)
    UI.assign={bid,ii}: Position – ein Pin antippen = Position diesem Pin zuordnen, dann zurück */
-const asgBeleg=()=>UI.assign&&belegById(UI.assign.bid);
-function asgIsOn(p){const a=UI.assign,b=asgBeleg();if(!b)return false;if(a.ii!=null){const it=(b.items||[])[a.ii];return !!it&&it.pin===p.id}return belegPins(b).some(x=>x.id===p.id)}
-async function asgToggle(p){const a=UI.assign,b=asgBeleg();if(!b)return;
+const asgBeleg=()=>UI.assign&&UI.assign.kind!=='photos'&&belegById(UI.assign.bid);
+const asgPhotos=()=>UI.assign&&UI.assign.kind==='photos'?UI.assign:null;
+const photoTargetEntry=p=>p.entries.find(x=>/bild/i.test(x.name||''))||p.entries[0];
+async function movePhotosTo(p){const a=asgPhotos();if(!a)return;const src=pinById(a.from),se=src&&src.entries.find(x=>x.id===a.fromE);
+  if(!src||!se){UI.assign=null;renderPlan();return}if(p.id===src.id){toast('Das ist der Pin, aus dem die Fotos kommen – bitte einen anderen Pin antippen',3500);return}
+  const te=photoTargetEntry(p);if(!te)return;const ids=a.ids.filter(id=>se.photoIds.includes(id));
+  se.photoIds=se.photoIds.filter(id=>!ids.includes(id));for(const id of ids)if(!te.photoIds.includes(id))te.photoIds.push(id);
+  await dbPut('pins',src);await dbPut('pins',p);UI.assign=null;UI.floor=p.floorId;UI.pin=p.id;UI.entry=te.id;renderPlan();
+  toast(`${ids.length} Foto(s) nach Pin ${p.nr}${p.title?' '+p.title:''} («${entLabel(p,te)}») verschoben`,3500)}
+function asgIsOn(p){const a=UI.assign,b=asgBeleg();if(asgPhotos())return false;if(!b)return false;if(a.ii!=null){const it=(b.items||[])[a.ii];return !!it&&it.pin===p.id}return belegPins(b).some(x=>x.id===p.id)}
+async function asgToggle(p){if(asgPhotos())return movePhotosTo(p);const a=UI.assign,b=asgBeleg();if(!b)return;
   if(a.ii!=null){const it=(b.items||[])[a.ii];if(!it)return;const old=it.pin;it.pin=p.id;await syncItemLinks(b,old);await dbPut('belege',b);
     toast(`${itemNo(b,a.ii)} «${it.name||'Position'}» → Pin ${p.nr}${p.title?' '+p.title:''}`,3000);ACT.asgDone();return}
   const e=entryWithBeleg(p,b.id);if(b.cost){b.cost='';await dbPut('belege',b)}
@@ -982,6 +998,9 @@ function asgPanel(){const b=asgBeleg(),a=UI.assign,fn=id=>floorLabel(floorById(i
     <button class="b p" data-act="asgDone" style="width:100%">✓ Fertig</button></div>`}
 function renderPinPanel(){
   const el=$('#pinPanel'),p=pinById(UI.pin);
+  if(asgPhotos()){const a=asgPhotos(),src=pinById(a.from);el.innerHTML=`<div class="asgp"><div class="lbl">Fotos verschieben</div><h3>${a.ids.length} Foto(s) aus Pin ${src?src.nr+(src.title?' '+esc(src.title):''):''}</h3>
+    <div class="thumbs" style="margin:8px 0">${a.ids.slice(0,9).map(id=>`<div class="th"><img src="${urlOf(id)}" alt=""></div>`).join('')}</div>
+    <p>👉 Tippe im Grundriss auf den <b>Ziel-Pin</b>. Die Fotos kommen dort in den Eintrag «Bilder» (bzw. den ersten Eintrag). Geschoss links wechseln.</p><button class="b" data-act="asgDone" style="width:100%">Abbrechen</button></div>`;return}
   if(UI.assign&&asgBeleg()){el.innerHTML=asgPanel();return}
   if(!curFloor()){el.innerHTML='';return}
   if(!p||p.floorId!==UI.floor){
@@ -1046,8 +1065,8 @@ function entryEditor(p,e){
   <div class="lbl">Gewerke (antippen)</div>
   <div class="tags">${GEWERKE.map(g=>`<button class="tagb ${(e.tags||[]).includes(g)?'on':''}" style="--c:${GWC[g]}" data-act="togTag" data-id="${g}">${g}</button>`).join('')}</div>
   <label>Bemerkungen / Fortschritt<textarea data-ef="note" rows="4" placeholder="Was wurde gemacht, Stand, Besonderheiten …">${esc(e.note)}</textarea></label>
-  <div class="lbl">Fotos</div>
-  <div class="thumbs">${e.photoIds.map((id,i,a)=>`<div class="th"><img src="${urlOf(id)}" alt="" data-act="zoomImg" data-id="${id}"><span class="thn">${i+1}</span><button data-act="rmPhoto" data-id="${id}" title="Foto entfernen">×</button>
+  <div class="lbl fhd">Fotos ${e.photoIds.length?(UI.psel?`<span class="fsel"><button class="b sm" data-act="pselAll">Alle</button><button class="b sm" data-act="pselOff">Abbrechen</button><button class="b sm p" data-act="pselMove" ${UI.psel.size?'':'disabled'}>↗ Verschieben (${UI.psel.size})</button></span>`:`<button class="b sm" data-act="pselOn" title="Fotos auswählen, um sie in einen anderen Pin zu verschieben">☑ Auswählen</button>`):''}</div>
+  <div class="thumbs">${e.photoIds.map((id,i,a)=>`<div class="th ${UI.psel?(UI.psel.has(id)?'sel':'selm'):''}"><img src="${urlOf(id)}" alt="" data-act="${UI.psel?'pselTog':'zoomImg'}" data-id="${id}">${UI.psel?`<span class="thck">${UI.psel.has(id)?'✓':''}</span>`:''}<span class="thn">${i+1}</span><button data-act="rmPhoto" data-id="${id}" title="Foto entfernen">×</button>
       ${a.length>1?`<span class="thm"><button data-act="movPhoto" data-id="${id}" data-dir="-1" ${i?'':'disabled'} title="Nach vorne">◀</button><button data-act="movPhoto" data-id="${id}" data-dir="1" ${i<a.length-1?'':'disabled'} title="Nach hinten">▶</button></span>`:''}</div>`).join('')}<label class="th add cam" title="Foto aufnehmen">📷<input type="file" accept="image/*" capture="environment" hidden data-up="pinPhotos"></label><label class="th add" title="Fotos aus der Galerie">＋<input type="file" accept="image/*" multiple hidden data-up="pinPhotos"></label></div><p class="drophint">… oder Fotos hierher ziehen</p>
   <div class="lbl">Holzbau – Material &amp; Belege</div>
   ${GEWERKE.filter(g=>g==='Holzbau'||e.gwText[g]||entBelegeGw(e,g).length||matsOf(e,g).length).map(gwBlock).join('')}
@@ -1416,8 +1435,8 @@ const ACT={
     for(const p of pins)await dbDel('pins',p.id);await dbDel('floors',f.id);
     for(const p of pins)for(const id of pinPhotos(p))await delBlobIfUnused(id);await delBlobIfUnused(f.planId);
     UI.floor=firstFloorId();UI.pin=null;renderPlan()},
-  selPin:id=>{UI.pin=id;UI.entry=null;renderPlan()},
-  selEntry:id=>{UI.entry=id;renderPinPanel()},
+  selPin:id=>{UI.pin=id;UI.entry=null;UI.psel=null;renderPlan()},
+  selEntry:id=>{UI.entry=id;UI.psel=null;renderPinPanel()},
   moveEntry:async(id,a)=>{const p=pinById(UI.pin);if(!p)return;const i=p.entries.findIndex(x=>x.id===id),j=i+(+a.dataset.dir);if(i<0||j<0||j>=p.entries.length)return;
     [p.entries[i],p.entries[j]]=[p.entries[j],p.entries[i]];clearTimeout(saveTimers[p.id]);delete saveTimers[p.id];await dbPut('pins',p);renderPinPanel()},
   addKnick:async()=>{const p=pinById(UI.pin),e=curEntry(p);if(!e)return;e.knicks=e.knicks||[];e.knicks.push({x:'',h:''});await dbPut('pins',p);renderPinPanel();
@@ -1462,6 +1481,12 @@ const ACT={
   closePin:()=>{UI.pin=null;renderPlan()},
   zoomImg:id=>showImg(id),
   closeLb:()=>{$('#lb').hidden=true},
+  pselOn:()=>{UI.psel=new Set();renderPinPanel()},
+  pselOff:()=>{UI.psel=null;renderPinPanel()},
+  pselTog:id=>{if(!UI.psel)return;UI.psel.has(id)?UI.psel.delete(id):UI.psel.add(id);renderPinPanel()},
+  pselAll:()=>{const e=curEntry(pinById(UI.pin));if(!e||!UI.psel)return;if(UI.psel.size===e.photoIds.length)UI.psel.clear();else e.photoIds.forEach(id=>UI.psel.add(id));renderPinPanel()},
+  pselMove:()=>{const p=pinById(UI.pin),e=curEntry(p);if(!e||!UI.psel||!UI.psel.size)return;
+    UI.assign={kind:'photos',ids:e.photoIds.filter(id=>UI.psel.has(id)),from:p.id,fromE:e.id};UI.psel=null;renderPlan()},
   movPhoto:async(id,a)=>{const p=pinById(UI.pin),e=curEntry(p);if(!e)return;const i=e.photoIds.indexOf(id),j=i+(+a.dataset.dir);if(i<0||j<0||j>=e.photoIds.length)return;
     [e.photoIds[i],e.photoIds[j]]=[e.photoIds[j],e.photoIds[i]];clearTimeout(saveTimers[p.id]);delete saveTimers[p.id];await dbPut('pins',p);renderPinPanel()},
   rmPhoto:async id=>{const p=pinById(UI.pin),e=curEntry(p);if(!e||!confirm('Foto aus diesem Eintrag entfernen?'))return;e.photoIds=e.photoIds.filter(x=>x!==id);await dbPut('pins',p);await delBlobIfUnused(id);renderPinPanel()},
@@ -1485,7 +1510,7 @@ const ACT={
     UI.assign={bid:id,ii};UI.pin=null;UI.add=false;UI.tab='plan';
     const fp=S.pins.find(p=>ii!=null?(b.items[ii]||{}).pin===p.id:pinBelegIds(p).includes(id));if(fp)UI.floor=fp.floorId;else if(!curFloor()||isSite(curFloor())){const f=orderedFloors().find(f=>!isSite(f));if(f)UI.floor=f.id}
     render()},
-  asgDone:async()=>{const id=UI.assign&&UI.assign.bid,bb=id&&belegById(id);if(bb&&UI.assign.ii==null&&belegPins(bb).length)await itemsFollowBeleg(bb,true);UI.assign=null;UI.tab='belege';UI.hl=id;if(id){UI.bOpen=UI.bOpen||new Set();if((belegById(id)||{}).items&&belegById(id).items.length)UI.bOpen.add(id)}render()},
+  asgDone:async()=>{if(asgPhotos()){const a=asgPhotos();UI.assign=null;UI.pin=a.from;UI.entry=a.fromE;const sp=pinById(a.from);if(sp)UI.floor=sp.floorId;renderPlan();return}const id=UI.assign&&UI.assign.bid,bb=id&&belegById(id);if(bb&&UI.assign.ii==null&&belegPins(bb).length)await itemsFollowBeleg(bb,true);UI.assign=null;UI.tab='belege';UI.hl=id;if(id){UI.bOpen=UI.bOpen||new Set();if((belegById(id)||{}).items&&belegById(id).items.length)UI.bOpen.add(id)}render()},
   itemsFollow:async id=>{const b=belegById(id);if(!b)return;if(await itemsFollowBeleg(b,false)){renderBelege();toast('Alle Positionen folgen jetzt dem Beleg',2500)}},
   rmBCost:async id=>{const b=belegById(id);if(!b)return;b.cost='';await dbPut('belege',b);renderBelege()},
   bItems:id=>{UI.bOpen=UI.bOpen||new Set();UI.bOpen.has(id)?UI.bOpen.delete(id):UI.bOpen.add(id);renderBelege()},
