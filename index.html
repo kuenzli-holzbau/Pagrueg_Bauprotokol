@@ -266,6 +266,10 @@ table.bt{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
 .emv .b:disabled{opacity:.35;cursor:default}
 .gwl{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 .gwr{display:flex;align-items:center;gap:6px}
+/* Beleg-Status (nur in der App, nicht im Export) */
+select.bst{background:var(--c,#9ca3af);color:#fff;font-weight:600;font-size:12px;border:1px solid var(--c,#9ca3af);border-radius:7px;padding:5px 4px;width:100%;min-width:150px}
+select.bst option{background:#fff;color:#1f2328;font-weight:400}
+.gwr input[data-stn]{flex:1;min-width:0}
 .gwr input[type=color]{width:38px;height:34px;padding:2px;border:1px solid var(--line);border-radius:7px;background:#fff;flex:none}
 .gwr input[data-gwn]{flex:1;min-width:0}
 .gwr input[readonly]{background:#f6f4ef;color:var(--mut)}
@@ -549,7 +553,7 @@ const today=()=>isoDate(new Date());
 const fmtDate=s=>{if(!s)return '';const [y,m,d]=s.split('-');return d&&m?`${d}.${m}.${y}`:s};
 const parseAmount=s=>{const t=String(s).replace(/[’'\s]/g,'').replace(',','.');if(t==='')return '';const n=parseFloat(t);return isNaN(n)?'':Math.round(n*100)/100};
 const isPdfFile=f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
-const APP_VERSION='35 (18.10.2026, sichere Synchronisierung, Sicherungspunkte, verwaiste Dateien)';
+const APP_VERSION='38 (09.11.2026, Beleg-Status, Pins verschieben, Eintragsfarben)';
 const CATS=['Material','Arbeitsstunden','Werkzeug / Miete','Entsorgung','Dienstleistung','Sonstiges'];
 /* Gewerke: Standardliste, eigene Liste liegt in S.project.gewerke [{n:Name,c:Farbe}] und wird mitsynchronisiert */
 const GW_DEF=[['Holzbau','#92400e'],['Sanitär','#2563eb'],['Elektro','#ca8a04'],['Bodenleger','#0d9488'],['Gipser','#6b7280'],['Maler','#9333ea'],['Ofenbauer','#dc2626'],['Küchenbauer','#db2777']].map(([n,c])=>({n,c}));
@@ -601,7 +605,7 @@ const dbClear=s=>tx(s,'readwrite',st=>st.clear());
 const S={project:{id:'project',name:APP.title,address:'',author:'',period:''},floors:[],buildings:[],articles:[],pins:[],belege:[],blobs:[],work:[]};
 const ZOOM0=.5;
 let SHOWLBL=false;try{SHOWLBL=localStorage.getItem(APP.id+'_lbl')==='1'}catch(_){}
-const UI={bs:{k:'nr',d:1},bfl:{nr:'',date:'',sup:'',desc:'',cat:'',gw:'',amt:'',pins:''},tab:'plan',floor:null,pin:null,add:false,draw:null,newArt:null,gf:'',pf:'',pfl:'',gwOpen:new Set(),fg:'',zoom:ZOOM0,fy:'',fc:'',q:'',hl:null,opts:{plans:true,entries:true,mats:true,work:true,list:true,att:true,gw:''}};
+const UI={bs:{k:'nr',d:1},bfl:{st:'',nr:'',date:'',sup:'',desc:'',cat:'',gw:'',amt:'',pins:''},tab:'plan',floor:null,pin:null,add:false,draw:null,newArt:null,gf:'',pf:'',pfl:'',gwOpen:new Set(),fg:'',zoom:ZOOM0,fy:'',fc:'',q:'',hl:null,opts:{plans:true,entries:true,mats:true,work:true,list:true,att:true,gw:''}};
 const blobMap=new Map(), urls=new Map();
 const floorById=id=>S.floors.find(f=>f.id===id);
 const pinById=id=>S.pins.find(p=>p.id===id);
@@ -738,6 +742,15 @@ function distribute(amount,pins,b,into){const out=new Map();if(!pins.length||!am
 const ALLG='allg';
 /* Projekt-Kostenstellen ohne Pin (Positionen können statt einem Pin hierhin) */
 const GEN_BASE=[{k:'allg',n:'Allg. Verbrauchsmaterial',h:'Allgemeines Verbrauchsmaterial',fix:1},{k:'entsorgung',n:'Entsorgung',h:'Entsorgung',fix:1}];
+/* Beleg-Status: Standard + eigene in S.project.bstat [{k,n,c}] (synchronisiert). Ohne Status = offen. Nur Arbeitshilfe, erscheint nicht im Export */
+const BST_BASE=[{k:'offen',n:'offen',c:'#9ca3af'},{k:'zug',n:'Beleg zugeordnet',c:'#16a34a'},{k:'pos',n:'Positionen erstellt',c:'#f97316'},{k:'ers',n:'Beleg ersetzen',c:'#dc2626'}];
+const BST_PAL=['#2563eb','#9333ea','#0d9488','#ca8a04','#db2777','#4b5563','#92400e','#0891b2'];
+const stList=()=>{const o=(Array.isArray(S.project.bstat)?S.project.bstat:[]);const m=new Map(o.map(x=>[x.k,x]));return [...BST_BASE.map(x=>Object.assign({},x,m.get(x.k)||{},{fix:true})),...o.filter(x=>!BST_BASE.some(y=>y.k===x.k)&&!x.del)]};
+const stOf=b=>stList().find(x=>x.k===(b.status||'offen'))||stList()[0];
+async function stSave(x){S.project.bstat=Array.isArray(S.project.bstat)?S.project.bstat:[];const i=S.project.bstat.findIndex(y=>y.k===x.k);const v={k:x.k,n:x.n,c:x.c};if(i<0)S.project.bstat.push(v);else S.project.bstat[i]=Object.assign(S.project.bstat[i],v);await dbPut('kv',S.project)}
+async function newStatus(n){n=(n||prompt('Name des neuen Status:','')||'').trim();if(!n)return '';const ex=stList().find(x=>x.n.toLowerCase()===n.toLowerCase());if(ex)return ex.k;
+  const used=new Set(stList().map(x=>x.c)),c=BST_PAL.find(x=>!used.has(x))||BST_PAL[stList().length%BST_PAL.length];const k='s_'+uid();await stSave({k,n,c});toast(`Status «${n}» angelegt`,2500);return k}
+const stSel=b=>{const st=stOf(b);return `<select class="bst" data-bf="status" style="--c:${st.c}">${stList().map(x=>`<option value="${x.k}" ${x.k===st.k?'selected':''}>${esc(x.n)}</option>`).join('')}<option value="__new">+ Neuer Status …</option></select>`};
 /* eigene Kostenstellen in S.project.costs [{k,n}] – werden mitsynchronisiert */
 const genList=()=>[...GEN_BASE,...(Array.isArray(S.project.costs)?S.project.costs:[]).map(c=>({k:c.k,n:c.n,h:c.n}))];
 const isGen=k=>!!k&&genList().some(g=>g.k===k);
@@ -1270,8 +1283,8 @@ function filteredBelege(){const q=UI.q.trim().toLowerCase();
     let m;if(m=f.match(/^(>=|<=|>|<|=)(-?[\d.,]+)$/)){const v=num(m[2]);return {'>':n>v,'<':n<v,'>=':n>=v,'<=':n<=v,'=':Math.abs(n-v)<0.005}[m[1]]}
     if(m=f.match(/^(-?[\d.,]+)-(-?[\d.,]+)$/))return n>=num(m[1])&&n<=num(m[2]);return chf(n).replace(/['’]/g,'').includes(f.replace(',','.'))};
   const out=S.belege.filter(b=>(!dm||dm.has(b.id))&&(!UI.fy||(b.date||'').startsWith(UI.fy))&&has('B-'+pad(b.nr),F.nr)&&has(fmtDate(b.date),F.date)&&has(b.supplier,F.sup)&&has(b.desc,F.desc)
-    &&(!F.cat||b.category===F.cat)&&(!F.gw||(F.gw==='-'?!b.gewerk:b.gewerk===F.gw))&&amtOk(b.amount,F.amt)&&(!F.pins||(F.pins==='mit'?pinCnt(b)>0:pinCnt(b)===0))&&(!q||[b.supplier,b.desc,b.category,b.gewerk,'b-'+pad(b.nr),String(b.amount)].join(' ').toLowerCase().includes(q)));
-  const {k,d}=UI.bs,emp=v=>v===''||v==null,val={nr:b=>b.nr,date:b=>b.date||'',sup:b=>lc(b.supplier),desc:b=>lc(b.desc),cat:b=>lc(b.category),gw:b=>lc(b.gewerk),amt:b=>emp(b.amount)?null:+b.amount,pins:b=>pinCnt(b)}[k]||(b=>b.nr);
+    &&(!F.st||(b.status||'offen')===F.st)&&(!F.cat||b.category===F.cat)&&(!F.gw||(F.gw==='-'?!b.gewerk:b.gewerk===F.gw))&&amtOk(b.amount,F.amt)&&(!F.pins||(F.pins==='mit'?pinCnt(b)>0:pinCnt(b)===0))&&(!q||[b.supplier,b.desc,b.category,b.gewerk,'b-'+pad(b.nr),String(b.amount)].join(' ').toLowerCase().includes(q)));
+  const {k,d}=UI.bs,emp=v=>v===''||v==null,val={nr:b=>b.nr,date:b=>b.date||'',sup:b=>lc(b.supplier),desc:b=>lc(b.desc),cat:b=>lc(b.category),st:b=>stList().findIndex(x=>x.k===(b.status||'offen')),gw:b=>lc(b.gewerk),amt:b=>emp(b.amount)?null:+b.amount,pins:b=>pinCnt(b)}[k]||(b=>b.nr);
   return out.sort((a,b)=>{const x=val(a),y=val(b),ex=x===''||x==null,ey=y===''||y==null;if(ex!==ey)return ex?1:-1;return ((typeof x==='number'&&typeof y==='number')?x-y:String(x).localeCompare(String(y),'de'))*d||a.nr-b.nr})}
 const bfActive=()=>Object.values(UI.bfl).some(Boolean)||UI.fy||UI.q||UI.fd;
 function bth(k,label,st){const on=UI.bs.k===k;return `<th class="srt ${on?'on':''}" data-act="bsort" data-id="${k}" ${st?`style="${st}"`:''} title="Sortieren">${label}<i>${on?(UI.bs.d>0?'▲':'▼'):'↕'}</i></th>`}
@@ -1287,8 +1300,8 @@ function renderBelege(){
     ${bfActive()?'<button class="b" data-act="bfReset">✕ Filter zurücksetzen</button>':''}
     <span class="sp"></span><span class="sum">${list.length} Beleg(e) · Total CHF <b>${chf(sum)}</b></span></div>
     <div class="drop" id="drop">Fotos oder PDFs von Belegen hierher ziehen – oder oben «+ Fotos / PDFs»</div>
-    ${S.belege.length?`<div class="tw"><table class="bt"><thead><tr><th></th>${bth('nr','Nr.','width:90px')}${bth('date','Datum','width:140px')}${bth('sup','Lieferant / Firma')}${bth('desc','Beschreibung')}${bth('cat','Kategorie','width:140px')}${bth('gw','Gewerk','width:120px')}${bth('amt','Betrag CHF','width:110px;text-align:right')}${bth('pins','Pins','width:26%')}<th></th></tr>
-    <tr class="flt"><th></th><th><input data-bfl="nr" value="${esc(UI.bfl.nr)}" placeholder="Filter"></th><th><input data-bfl="date" value="${esc(UI.bfl.date)}" placeholder="z.B. 2022 / 03.2022"></th>
+    ${S.belege.length?`<div class="tw"><table class="bt"><thead><tr><th></th>${bth('nr','Nr.','width:90px')}${bth('st','Status','width:150px')}${bth('date','Datum','width:140px')}${bth('sup','Lieferant / Firma')}${bth('desc','Beschreibung')}${bth('cat','Kategorie','width:140px')}${bth('gw','Gewerk','width:120px')}${bth('amt','Betrag CHF','width:110px;text-align:right')}${bth('pins','Pins','width:26%')}<th></th></tr>
+    <tr class="flt"><th></th><th><input data-bfl="nr" value="${esc(UI.bfl.nr)}" placeholder="Filter"></th><th><select data-bfl="st"><option value="">Alle</option>${stList().map(x=>`<option value="${x.k}" ${UI.bfl.st===x.k?'selected':''}>${esc(x.n)}</option>`).join('')}</select></th><th><input data-bfl="date" value="${esc(UI.bfl.date)}" placeholder="z.B. 2022 / 03.2022"></th>
       <th><input data-bfl="sup" value="${esc(UI.bfl.sup)}" placeholder="Filter"></th><th><input data-bfl="desc" value="${esc(UI.bfl.desc)}" placeholder="Filter"></th>
       <th><select data-bfl="cat"><option value="">Alle</option>${CATS.map(c=>`<option ${UI.bfl.cat===c?'selected':''}>${c}</option>`).join('')}</select></th>
       <th><select data-bfl="gw"><option value="">Alle</option>${GEWERKE.map(g=>`<option ${UI.bfl.gw===g?'selected':''}>${g}</option>`).join('')}<option value="-" ${UI.bfl.gw==='-'?'selected':''}>Ohne Gewerk</option></select></th>
@@ -1296,7 +1309,7 @@ function renderBelege(){
       <th><select data-bfl="pins"><option value="">Alle</option><option value="mit" ${UI.bfl.pins==='mit'?'selected':''}>mit Pin</option><option value="ohne" ${UI.bfl.pins==='ohne'?'selected':''}>ohne Pin</option></select></th><th></th></tr></thead><tbody>
     ${list.map(b=>{const pins=S.pins.filter(p=>pinBelegIds(p).includes(b.id));
       return `<tr data-id="${b.id}" class="${UI.hl===b.id?'hl':''}${dm.has(b.id)?' dup':''}"><td><div class="bth" data-act="openBeleg" data-id="${b.id}" title="Beleg öffnen">${b.previewId?`<img src="${urlOf(b.previewId)}" alt="">`:''}${isPdfBeleg(b)?'<span class="tag">PDF</span>':''}</div></td>
-      <td class="mut" style="white-space:nowrap">B-${pad(b.nr)}<div class="dupc">${dupHtml(b,dm)}</div></td><td><input type="date" data-bf="date" class="${b.auto&&b.auto.date?'auto':''}" value="${esc(b.date)}"></td>
+      <td class="mut" style="white-space:nowrap">B-${pad(b.nr)}<div class="dupc">${dupHtml(b,dm)}</div></td><td>${stSel(b)}</td><td><input type="date" data-bf="date" class="${b.auto&&b.auto.date?'auto':''}" value="${esc(b.date)}"></td>
       <td><input data-bf="supplier" class="${b.auto&&b.auto.supplier?'auto':''}" value="${esc(b.supplier)}" placeholder="Lieferant"></td><td><textarea data-bf="desc" class="bdesc ${b.auto&&b.auto.desc?'auto':''}" rows="3" maxlength="${DESC_MAX}" title="${esc(b.desc)}" placeholder="Material / Beschreibung">${esc(b.desc)}</textarea>
         <button class="bitog ${UI.bOpen&&UI.bOpen.has(b.id)?'on':''}" data-act="bItems" data-id="${b.id}">${UI.bOpen&&UI.bOpen.has(b.id)?'▾':'▸'} ${(b.items||[]).length?(b.items.length+' Position'+(b.items.length>1?'en':'')):'Positionen'}${(b.items||[]).length&&belegBreakdown(b).openN?' <span class="bad">⚠ offen</span>':''}</button></td>
       <td><select data-bf="category">${CATS.map(c=>`<option ${b.category===c?'selected':''}>${c}</option>`).join('')}</select></td>
@@ -1307,7 +1320,7 @@ function renderBelege(){
         ${belegCost(b)?`<span class="pb costchip">${esc(genList().find(g=>g.k===belegCost(b)).n)} <a data-act="rmBCost" data-id="${b.id}" title="Kostenstelle entfernen">×</a></span>`:''}
         ${true?`<select class="lp" data-ch="linkPin"><option value="">+ Pin / Kostenstelle …</option><optgroup label="Kostenstellen">${genList().map(g=>`<option value="cost:${g.k}">${esc(g.n)}</option>`).join('')}</optgroup>${orderedFloors().map(f=>{const ps=pinsOf(f.id).filter(p=>!pinBelegIds(p).includes(b.id));return ps.length?`<optgroup label="${esc(floorLabel(f))}">${ps.map(p=>`<option value="${p.id}">${p.nr}${p.title?' – '+esc(p.title):''}</option>`).join('')}</optgroup>`:''}).join('')}</select>`:''}</td>
       <td><div class="ra"><button class="b sm" data-act="asgStart" data-id="${b.id}" title="Im Grundriss die Pins antippen, zu denen dieser Beleg gehört">📍</button><button class="b sm" data-act="readBeleg" data-id="${b.id}" title="Betrag, Datum und Lieferant automatisch erkennen">✨</button><button class="b d sm" data-act="delBeleg" data-id="${b.id}" title="Beleg löschen">×</button></div></td></tr>${UI.bOpen&&UI.bOpen.has(b.id)?itemsRow(b,pins):''}`}).join('')}
-      ${list.length?'':'<tr><td colspan="10" class="mut c" style="padding:24px">Keine Belege für diesen Filter.</td></tr>'}</tbody></table></div>`
+      ${list.length?'':'<tr><td colspan="11" class="mut c" style="padding:24px">Keine Belege für diesen Filter.</td></tr>'}</tbody></table></div>`
     :`<p class="mut c">Noch keine Belege erfasst.</p>`}`;
   const d=$('#drop');
   d.ondragover=e=>{e.preventDefault();d.classList.add('over')};d.ondragleave=()=>d.classList.remove('over');
@@ -1345,6 +1358,9 @@ function renderExport(){
    <div class="card"><h2>Kostenstellen ohne Pin</h2><p class="mut" style="font-size:13px">Für Beleg-Positionen, die keinem Pin gehören. Erscheinen in der Kostenübersicht und im PDF je mit eigenem Abschnitt.</p>
    <div class="gwl">${genList().map(g=>`<div class="gwr">${g.fix?`<input value="${esc(g.n)}" readonly title="fest">`:`<input data-cost="${g.k}" value="${esc(g.n)}">`}<span class="gwu">${costUse(g.k)?costUse(g.k)+' Pos.':''}</span>${g.fix?'<span style="width:30px"></span>':`<button class="b d sm" data-act="costDel" data-id="${g.k}" title="Kostenstelle löschen">×</button>`}</div>`).join('')}</div>
    <p style="display:flex;gap:6px;margin-top:10px"><input id="costNew" placeholder="Neue Kostenstelle, z.B. Gerüst" style="flex:1"><button class="b p" data-act="costAdd">+ Kostenstelle</button></p></div>
+   <div class="card"><h2>Beleg-Status</h2><p class="mut" style="font-size:13px">Arbeitshilfe in der Beleg-Liste – erscheint nicht im Export. Name und Farbe änderbar, eigene Status können gelöscht werden.</p>
+   <div class="gwl">${stList().map(x=>`<div class="gwr"><input type="color" data-stc="${x.k}" value="${x.c}" title="Farbe"><input data-stn="${x.k}" value="${esc(x.n)}"><span class="gwu">${S.belege.filter(b=>(b.status||'offen')===x.k).length} Beleg(e)</span>${x.fix?'<span style="width:30px"></span>':`<button class="b d sm" data-act="stDel" data-id="${x.k}" title="Status löschen">×</button>`}</div>`).join('')}</div>
+   <p style="display:flex;gap:6px;margin-top:10px"><input id="stNew" placeholder="Neuer Status, z.B. Rückfrage Lieferant" style="flex:1"><button class="b p" data-act="stAdd">+ Status</button></p></div>
    <div class="card"><h2>Gewerke</h2><p class="mut" style="font-size:13px">Eigene Gewerke anlegen, umbenennen, Farbe wählen und Reihenfolge ändern. Umbenennen passt alle bestehenden Einträge und Belege mit an.</p>
    <div class="gwl">${gwList().map((g,i,a)=>`<div class="gwr"><input type="color" data-gwc="${i}" value="${g.c}" title="Farbe"><input data-gwn="${i}" value="${esc(g.n)}" ${g.n==='Holzbau'?'readonly title="Holzbau ist fest (Material/Preisliste)"':''}>
      <span class="gwu">${gwUse(g.n)||''}</span><button class="b sm" data-act="gwMove" data-id="${i}" data-dir="-1" ${i?'':'disabled'}>▲</button><button class="b sm" data-act="gwMove" data-id="${i}" data-dir="1" ${i<a.length-1?'':'disabled'}>▼</button>
@@ -1563,6 +1579,11 @@ const ACT={
   pstMore:()=>{UI.pstN=(UI.pstN||60)+200;const l=$('#pstList');if(l)l.innerHTML=pstList()},
   totals:()=>{$('#totBody').innerHTML=`<h2 style="margin:0 0 10px">Kostenübersicht</h2>${costHtml()}`;$('#totDlg').hidden=false;updTotBtn()},
   totClose:(id,a,e)=>{if(e&&e.target.closest('.totbox')&&!e.target.closest('[data-act="totClose"].b'))return;$('#totDlg').hidden=true},
+  stAdd:async()=>{const i=$('#stNew'),n=(i.value||'').trim();if(!n)return i.focus();if(stList().some(x=>x.n.toLowerCase()===n.toLowerCase())){toast('Diesen Status gibt es schon',3000);return}await newStatus(n);renderExport()},
+  stDel:async k=>{const x=stList().find(y=>y.k===k);if(!x||x.fix)return;const n=S.belege.filter(b=>b.status===k).length;
+    if(!confirm(`Status «${x.n}» löschen?${n?`\n\n${n} Beleg(e) haben diesen Status und werden wieder «offen».`:''}`))return;
+    for(const b of S.belege)if(b.status===k){delete b.status;await dbPut('belege',b)}
+    const r=(S.project.bstat||[]).find(y=>y.k===k);if(r)r.del=true;await dbPut('kv',S.project);if(UI.bfl.st===k)UI.bfl.st='';renderExport();toast(`Status «${x.n}» gelöscht`,2500)},
   costAdd:async()=>{const i=$('#costNew'),n=(i.value||'').trim();if(!n)return i.focus();if(genList().some(g=>g.n.toLowerCase()===n.toLowerCase())){toast('Diese Kostenstelle gibt es schon',3000);return}await newCost(n);renderExport()},
   costDel:async k=>{const c=(S.project.costs||[]).find(x=>x.k===k);if(!c)return;const n=costUse(k);
     if(!confirm(`Kostenstelle «${c.n}» löschen?${n?`\n\n${n} Position(en) sind ihr zugeordnet und werden wieder «offen».`:''}`))return;
@@ -1639,6 +1660,9 @@ document.addEventListener('change',async e=>{const t=e.target,d=t.dataset;
   if(d.bi){const b=belegById(d.b);if(!b||!b.items)return;const it=b.items[+d.ii];if(!it)return;
     if(d.bi==='amount'){it.amount=parseAmount(t.value)}else if(d.bi==='pin'){let v=t.value;if(v==='__new'){v=await newCost();if(!v){renderBelege();return}}const old=it.pin;it.pin=v;await syncItemLinks(b,old)}else it[d.bi]=t.value;
     if(b.auto&&d.bi!=='pin')b.auto.items=false;await dbPut('belege',b);renderBelege();return}
+  if(d.stn||d.stc){const x=stList().find(y=>y.k===(d.stn||d.stc));if(!x)return;
+    if(d.stn){const n=t.value.trim();if(!n||stList().some(y=>y.k!==x.k&&y.n.toLowerCase()===n.toLowerCase())){toast(n?'Diesen Namen gibt es schon':'Name darf nicht leer sein',3000);t.value=x.n;return}x.n=n}else x.c=t.value;
+    await stSave(x);toast('Status gespeichert',1500);return}
   if(d.cost){const c=(S.project.costs||[]).find(x=>x.k===d.cost);if(!c)return;const n=t.value.trim();
     if(!n||genList().some(g=>g.k!==c.k&&g.n.toLowerCase()===n.toLowerCase())){toast(n?'Diesen Namen gibt es schon':'Name darf nicht leer sein',3000);t.value=c.n;return}
     c.n=n;await dbPut('kv',S.project);toast('Kostenstelle umbenannt',2000);return}
@@ -1649,6 +1673,8 @@ document.addEventListener('change',async e=>{const t=e.target,d=t.dataset;
   if(d.bld){const b=bldById(d.bld);if(!b||!t.value.trim())return renderPlan();b.name=t.value.trim();await dbPut('buildings',b);renderFloorList();renderStage();return}
   if(d.pf){S.project[d.pf]=t.value;await dbPut('kv',S.project);if(d.pf==='name')document.querySelectorAll('[data-pf="name"]').forEach(i=>{if(i!==t)i.value=t.value});if(d.pf==='rate'){const v=parseAmount(t.value);S.project.rate=v;await dbPut('kv',S.project);renderArbeit()}return}
   if(d.split){const b=belegById(t.closest('tr').dataset.id);if(!b)return;b.split=b.split||{};const v=parseAmount(t.value);if(v==='')delete b.split[d.split];else b.split[d.split]=v;await dbPut('belege',b);renderBelege();return}
+  if(d.bf==='status'){const b=belegById(t.closest('tr').dataset.id);if(!b)return;let v=t.value;if(v==='__new'){v=await newStatus();if(!v){renderBelege();return}}
+    b.status=v==='offen'?'':v;if(!b.status)delete b.status;await dbPut('belege',b);renderBelege();return}
   if(d.bf){const b=belegById(t.closest('tr').dataset.id);if(!b)return;if(b.auto&&b.auto[d.bf]){b.auto[d.bf]=false;t.classList.remove('auto')}if(d.bf==='date')b.dateAuto=false;
     if(d.bf==='amount'){b.amount=parseAmount(t.value);t.value=b.amount===''?'':chf(b.amount)}
     else if(d.bf==='gewerk'){const old=b.gewerk||'';b.gewerk=t.value;for(const p of S.pins){let ch=false;for(const e of p.entries)if(e.belegIds.includes(b.id)&&(e.belegGw[b.id]||'')===old){e.belegGw[b.id]=b.gewerk;ch=true}if(ch)await dbPut('pins',p)}}
@@ -1968,7 +1994,7 @@ function mergeRec(store,remote,local){const L=JSON.parse(JSON.stringify(local)),
   if(store==='belege'){fillGaps(L,Object.assign({},Rm,{items:undefined}));const ids=new Set((L.items||[]).map(it=>it.id));L.items=[...(L.items||[]),...(Rm.items||[]).filter(it=>!ids.has(it.id))];
     L.split=Object.assign({},Rm.split||{},L.split||{});L.notDup=uni(L.notDup,Rm.notDup);L.itemLinks=uni(L.itemLinks,Rm.itemLinks);if(!L.items.length)delete L.items;return L}
   if(store==='floors'){fillGaps(L,Object.assign({},Rm,{rooms:undefined}));const ids=new Set((L.rooms||[]).map(r=>r.id));L.rooms=[...(L.rooms||[]),...(Rm.rooms||[]).filter(r=>!ids.has(r.id))];return L}
-  if(store==='kv'){fillGaps(L,Rm);if(Array.isArray(Rm.costs)){const ks=new Set((L.costs||[]).map(c=>c.k));L.costs=[...(L.costs||[]),...Rm.costs.filter(c=>!ks.has(c.k))]}return L}
+  if(store==='kv'){fillGaps(L,Rm);if(Array.isArray(Rm.bstat)){const ks=new Set((L.bstat||[]).map(c=>c.k));L.bstat=[...(L.bstat||[]),...Rm.bstat.filter(c=>!ks.has(c.k))]}if(Array.isArray(Rm.costs)){const ks=new Set((L.costs||[]).map(c=>c.k));L.costs=[...(L.costs||[]),...Rm.costs.filter(c=>!ks.has(c.k))]}return L}
   return fillGaps(L,Rm)}
 async function applyRemote(r,pending){
   const store=STORE_OF[r.kind];if(!store||pending.has(store+'|'+r.id))return false;
